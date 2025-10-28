@@ -26,6 +26,41 @@ class IndexManager:
         # Load index configurations
         self._load_indexes_from_config()
     
+    def _get_factory_string(self, index_type: str, **params) -> str:
+        """
+        Convert index type and parameters to FAISS factory string.
+        
+        Args:
+            index_type: Index type (e.g., "Flat", "IVFFlat", "IVFPQ")
+            **params: Additional index parameters
+            
+        Returns:
+            FAISS factory string
+        """
+        if index_type == "Flat":
+            return "Flat"
+        elif index_type == "IVFFlat":
+            nlist = params.get('nlist', 100)
+            return f"IVF{nlist},Flat"
+        elif index_type == "IVFPQ":
+            nlist = params.get('nlist', 100)
+            m = params.get('m', 8)
+            nbits = params.get('nbits', 8)
+            return f"IVF{nlist},PQ{m}x{nbits}"
+        elif index_type == "PQ":
+            m = params.get('m', 8)
+            nbits = params.get('nbits', 8)
+            return f"PQ{m}x{nbits}"
+        elif index_type == "LSH":
+            nbits = params.get('nbits', 64)
+            return f"LSH{nbits}"
+        elif index_type == "HNSW":
+            m = params.get('m', 16)
+            return f"HNSW{m}"
+        else:
+            # Assume it's already a factory string
+            return index_type
+    
     def _load_indexes_from_config(self) -> None:
         """Load index configurations from config"""
         index_configs = self.config.get_indexes()
@@ -35,21 +70,27 @@ class IndexManager:
             # Note: Actual index creation is deferred until needed
             # to avoid creating indexes for all parameter combinations upfront
     
-    def create_index(self, name: str, factory_string: str, dimension: int,
-                    use_gpu: bool = False, gpu_id: int = 0) -> FaissIndex:
+    def create_index(self, index_type: str, dimension: int,
+                    use_gpu: bool = False, gpu_id: int = 0, **params) -> FaissIndex:
         """
         Create a new FAISS index.
         
         Args:
-            name: Index name
-            factory_string: FAISS factory string
+            index_type: Index type (e.g., "Flat", "IVFFlat", "IVFPQ")
             dimension: Vector dimension
             use_gpu: Whether to use GPU
             gpu_id: GPU device ID
+            **params: Additional index parameters
             
         Returns:
             FaissIndex object
         """
+        # Convert index type to factory string
+        factory_string = self._get_factory_string(index_type, **params)
+        
+        # Generate unique name for this index instance
+        name = f"{index_type}_{len(self._indexes)}"
+        
         index = FaissIndex(name, factory_string, dimension, use_gpu, gpu_id)
         self._indexes[name] = index
         

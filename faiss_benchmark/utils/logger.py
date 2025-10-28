@@ -93,6 +93,23 @@ class Logger:
         """Log GPU information"""
         self.info(f"GPU: {gpu_name}, Memory: {memory_used:.2f}/{memory_total:.2f} MB")
 
+    # Method aliases for backward compatibility
+    def benchmark_start(self, description: str) -> None:
+        """Alias for log_benchmark_start with single description"""
+        self.info(f"Starting benchmark: {description}")
+    
+    def benchmark_end(self, description: str) -> None:
+        """Alias for log_benchmark_end with single description"""
+        self.info(f"Completed benchmark: {description}")
+    
+    def index_built(self, index_type: str, build_time: float, n_vectors: int) -> None:
+        """Alias for log_index_build"""
+        self.log_index_build(index_type, build_time, n_vectors)
+    
+    def search_performance(self, index_name: str, qps: float, recall: float, k: int) -> None:
+        """Alias for log_search_performance"""
+        self.log_search_performance(index_name, qps, recall, k)
+
 
 # Global logger instance
 _global_logger = None

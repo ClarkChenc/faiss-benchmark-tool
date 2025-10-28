@@ -68,7 +68,7 @@ class BenchmarkRunner:
             # Get data
             base_vectors = dataset.get_base_vectors()
             query_vectors = dataset.get_query_vectors()
-            ground_truth = dataset.get_ground_truth()
+            ground_truth = dataset.get_groundtruth()
             
             if query_vectors is None:
                 raise ValueError(f"No query vectors found for dataset {dataset_name}")
@@ -349,8 +349,8 @@ class BenchmarkRunner:
     
     def clear_cache(self) -> None:
         """Clear all cached data"""
-        self.dataset_manager.clear_cache()
-        self.index_manager.clear_indexes()
+        self.dataset_manager.clear_all_cache()
+        self.index_manager.clear_all_indexes()
         self.results.clear_results()
         gc.collect()
         self.logger.info("Cleared all caches")
