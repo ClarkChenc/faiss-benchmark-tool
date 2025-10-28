@@ -49,20 +49,37 @@ class DatasetManager:
                 self.logger.warning(f"Dataset {dataset_name} is not valid - "
                                   f"missing files in {data_dir}")
     
-    def add_dataset(self, name: str, data_dir: str, 
+    def add_dataset(self, name: str, data_dir: Optional[str] = None,
+                   base_file: Optional[str] = None,
+                   query_file: Optional[str] = None,
+                   ground_truth_file: Optional[str] = None,
                    dimension: Optional[int] = None) -> Dataset:
         """
         Add a new dataset.
         
         Args:
             name: Dataset name
-            data_dir: Directory containing dataset files
+            data_dir: Directory containing dataset files (if using standard naming)
+            base_file: Path to base vectors file (alternative to data_dir)
+            query_file: Path to query vectors file (alternative to data_dir)
+            ground_truth_file: Path to ground truth file (alternative to data_dir)
             dimension: Expected vector dimension
             
         Returns:
             Dataset object
+            
+        Note:
+            Either provide data_dir (for standard naming) or provide individual file paths.
         """
-        dataset = Dataset(name, data_dir, dimension)
+        if data_dir is not None:
+            # Standard way: use data_dir with standard naming convention
+            dataset = Dataset(name, data_dir, dimension)
+        elif all([base_file, query_file, ground_truth_file]):
+            # Alternative way: use specific file paths
+            dataset = Dataset._from_files(name, base_file, query_file, ground_truth_file, dimension)
+        else:
+            raise ValueError("Either provide data_dir or all three file paths (base_file, query_file, ground_truth_file)")
+        
         self._datasets[name] = dataset
         
         self.logger.info(f"Added dataset: {dataset}")

@@ -46,6 +46,45 @@ class Dataset:
         # Dataset info
         self._info = self._get_dataset_info()
     
+    @classmethod
+    def _from_files(cls, name: str, base_file: str, query_file: str, 
+                   groundtruth_file: str, dimension: Optional[int] = None):
+        """
+        Create dataset from specific file paths.
+        
+        Args:
+            name: Dataset name
+            base_file: Path to base vectors file
+            query_file: Path to query vectors file
+            groundtruth_file: Path to ground truth file
+            dimension: Expected vector dimension (optional, will be auto-detected)
+            
+        Returns:
+            Dataset object
+        """
+        # Create a dummy instance to set up the structure
+        data_dir = os.path.dirname(base_file)
+        instance = cls.__new__(cls)
+        instance.name = name
+        instance.data_dir = data_dir
+        instance.dimension = dimension
+        instance.logger = get_logger()
+        
+        # Set specific file paths
+        instance.base_file = base_file
+        instance.query_file = query_file
+        instance.groundtruth_file = groundtruth_file
+        
+        # Cached data
+        instance._base_vectors = None
+        instance._query_vectors = None
+        instance._groundtruth = None
+        
+        # Dataset info
+        instance._info = instance._get_dataset_info()
+        
+        return instance
+    
     def _get_dataset_info(self) -> Dict[str, Any]:
         """Get dataset information"""
         info = {
