@@ -1,0 +1,96 @@
+# FAISS Benchmark Configuration
+
+# Dataset configurations
+datasets:
+  sift1m:
+    name: "SIFT 1M"
+    dimension: 128
+    train_size: 1000000
+    test_size: 10000
+    query_size: 10000
+    data_type: "float32"
+    url: "http://corpus-texmex.irisa.fr/sift.tar.gz"
+  
+  glove:
+    name: "GloVe"
+    dimension: 100
+    train_size: 400000
+    test_size: 10000
+    query_size: 10000
+    data_type: "float32"
+    url: "http://nlp.stanford.edu/data/glove.6B.zip"
+
+  random:
+    name: "Random Vectors"
+    dimension: 128
+    train_size: 100000
+    test_size: 10000
+    query_size: 1000
+    data_type: "float32"
+
+# Index configurations
+indexes:
+  flat:
+    name: "Flat (Exact Search)"
+    factory_string: "Flat"
+    gpu_compatible: true
+    
+  ivf_flat:
+    name: "IVF Flat"
+    factory_string: "IVF{nlist},Flat"
+    nlist: [100, 1000, 4096]
+    gpu_compatible: true
+    
+  ivf_pq:
+    name: "IVF PQ"
+    factory_string: "IVF{nlist},PQ{m}"
+    nlist: [100, 1000, 4096]
+    m: [8, 16, 32]
+    gpu_compatible: true
+    
+  hnsw:
+    name: "HNSW"
+    factory_string: "HNSW{M}"
+    M: [16, 32, 64]
+    gpu_compatible: false
+    
+  lsh:
+    name: "LSH"
+    factory_string: "LSH"
+    gpu_compatible: false
+
+# Benchmark configurations
+benchmark:
+  k_values: [1, 10, 100]  # Number of nearest neighbors to retrieve
+  nprobe_values: [1, 10, 100]  # For IVF indexes
+  cpu_threads: [1, 4, 8, 16]  # CPU thread counts to test
+  
+  # Performance metrics
+  metrics:
+    - "search_time"
+    - "recall"
+    - "qps"  # Queries per second
+    - "memory_usage"
+    - "index_build_time"
+  
+  # Test parameters
+  warmup_queries: 100
+  test_queries: 1000
+  repeat_times: 3
+
+# Hardware configurations
+hardware:
+  gpu:
+    enabled: true
+    device_id: 0
+  
+  cpu:
+    enabled: true
+    max_threads: 16
+
+# Output configurations
+output:
+  results_dir: "results"
+  plots_dir: "plots"
+  format: ["csv", "json"]
+  plot_formats: ["png", "pdf"]
