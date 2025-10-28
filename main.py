@@ -8,19 +8,12 @@ from faiss_benchmark.results import print_results
 DATASET_SIZE = 100000
 DIMENSION = 128
 INDEX_TYPES = [
-    # Basic indexes
     "Flat",
-    "IVFFlat",
-    "LSH",
-    # PQ-based indexes
-    "IVFPQ",
-    "PQ",
-    # HNSW indexes
-    "HNSWFlat",
-    "HNSW,PQ32",
-    # GPU-specific indexes (if GPU is available)
+    "PCAR64,Flat",
     "IVF1024,Flat",
-    "IVF1024,PQ32"
+    "IVF1024,PQ8+16",
+    "HNSW32,Flat",
+    "HNSW32,PQ8+16",
 ]
 
 def main(use_gpu: bool):
