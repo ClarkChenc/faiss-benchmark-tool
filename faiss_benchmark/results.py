@@ -1,7 +1,9 @@
-def print_results(index_type: str, results: dict):
+def print_results(index_type, results):
     """Prints the benchmark results in a formatted way."""
-    print(f"  Index Type:    {index_type}")
-    print(f"  Train Time:    {results['train_time']:.4f} s")
-    print(f"  Add Time:      {results['add_time']:.4f} s")
-    print(f"  Search Time:   {results['search_time']:.4f} s")
-    print(f"  QPS:           {results['qps']:.2f}")
+    print(f"\n--- Results for {index_type} ---")
+    print(f"Training time: {results['train_time']:.4f} seconds")
+    print(f"Adding time: {results['add_time']:.4f} seconds")
+    print(f"Search time: {results['search_time']:.4f} seconds")
+    print(f"QPS: {results['qps']:.2f}")
+    print(f"Recall@10: {results['recall']:.4f}")
+    print("-" * 40)
