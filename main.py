@@ -9,12 +9,12 @@ DATASET_SIZE = 100000
 DIMENSION = 128
 INDEX_TYPES = [
     "Flat",
-    "PCAR64,Flat",
     "IVF1024,Flat",
     "IVF1024,PQ8+16",
     "HNSW32,Flat",
     "HNSW32,PQ8+16",
 ]
+
 
 def main(use_gpu: bool):
     """Main function to run the benchmark."""
@@ -29,6 +29,7 @@ def main(use_gpu: bool):
 
         results = run_benchmark(index, xb, xq)
         print_results(index_type, results)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Faiss Benchmark")

@@ -1,27 +1,32 @@
 import time
+import numpy as np
 
-def run_benchmark(index, xb, xq):
-    """Runs the benchmark for a given index and dataset."""
-    # Train the index
+def run_benchmark(index, xb, xq, gt, k=10):
+    """Runs the benchmark and returns performance metrics."""
+    # Training
     t0 = time.time()
     index.train(xb)
     train_time = time.time() - t0
 
-    # Add vectors to the index
+    # Adding vectors
     t0 = time.time()
     index.add(xb)
     add_time = time.time() - t0
 
-    # Search the index
+    # Searching
     t0 = time.time()
-    index.search(xq, 10)
+    D, I = index.search(xq, k)
     search_time = time.time() - t0
 
-    qps = len(xq) / search_time if search_time > 0 else 0
+    # Calculate recall
+    recall = (I[:, :k] == gt[:, :k]).sum() / (len(xq) * k)
+
+    qps = len(xq) / search_time
 
     return {
         "train_time": train_time,
         "add_time": add_time,
         "search_time": search_time,
         "qps": qps,
+        "recall": recall
     }

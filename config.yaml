@@ -1,0 +1,6 @@
+dataset: "sift"
+
+index_types:
+  - "Flat"
+  - "IVF1024,Flat"
+  - "HNSW32,Flat"
