@@ -3,9 +3,9 @@ import yaml
 import os
 import json
 import faiss
-from faiss_benchmark.datasets import load_dataset
+from faiss_benchmark.datasets import load_dataset, get_dataset_info
 from faiss_benchmark.indexes import create_index
-from faiss_benchmark.benchmark import build_index, search_index
+from faiss_benchmark.benchmark import build_index, build_index_batch, search_index
 from faiss_benchmark.results import print_results
 from faiss_benchmark.utils import load_config
 
@@ -24,19 +24,40 @@ def main():
     dataset_name = config["dataset"]
     index_types = config["index_types"]
     topk = config.get("topk", 10)
+    
+    # 获取批处理配置
+    batch_config = config.get("batch_processing", {"enabled": False})
+    use_batch_processing = batch_config.get("enabled", False)
 
     print(f"Loading dataset: {dataset_name}")
     try:
-        xb, xq, gt = load_dataset(dataset_name)
-        print(f"Dataset loaded successfully!")
-        print(f"Base vectors: {xb.shape}")
-        print(f"Query vectors: {xq.shape}")
-        print(f"Ground truth: {gt.shape}")
+        if use_batch_processing:
+            # 批处理模式：只获取数据集信息，不加载全部数据
+            print("使用批处理模式（内存优化）")
+            dataset_info = get_dataset_info(dataset_name)
+            print(f"Dataset info loaded successfully!")
+            print(f"Base vectors: {dataset_info['base_count']:,} x {dataset_info['dimension']}")
+            print(f"Query vectors: {dataset_info['query_count']} x {dataset_info['dimension']}")
+            print(f"Ground truth: {dataset_info['groundtruth'].shape}")
+            
+            dimension = dataset_info['dimension']
+            xq = dataset_info['query_vectors']
+            gt = dataset_info['groundtruth']
+            xb = None  # 不加载到内存
+        else:
+            # 传统模式：加载全部数据到内存
+            print("使用传统模式（全量加载）")
+            xb, xq, gt = load_dataset(dataset_name)
+            print(f"Dataset loaded successfully!")
+            print(f"Base vectors: {xb.shape}")
+            print(f"Query vectors: {xq.shape}")
+            print(f"Ground truth: {gt.shape}")
+            
+            dimension = xb.shape[1]
+            dataset_info = None
     except FileNotFoundError as e:
         print(f"Error: {e}")
         return
-
-    dimension = xb.shape[1]
 
     cache_dir = "index_cache"
     os.makedirs(cache_dir, exist_ok=True)
@@ -69,7 +90,13 @@ def main():
                     print("GPU mode is enabled. Index will be rebuilt and not cached.")
                 print("Building new index...")
                 index = create_index(index_type, dimension, use_gpu=use_gpu, params=params)
-                build_results = build_index(index, xb)
+                
+                # 根据是否使用批处理选择构建方法
+                if use_batch_processing:
+                    build_results = build_index_batch(index, dataset_info, batch_config)
+                else:
+                    build_results = build_index(index, xb)
+                
                 if not use_gpu:
                     print(f"Saving index to cache: {cache_path}")
                     faiss.write_index(index, cache_path)

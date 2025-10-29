@@ -74,6 +74,10 @@ cp config.yaml.template config.yaml
 - **`dataset`**: 数据集名称，对应 `data/` 目录下的数据集文件前缀。
 - **`topk`**: 搜索时返回的最近邻居数量。
 - **`num_threads`**: Faiss 使用的 CPU 线程数。
+- **`batch_processing`**: 批处理配置，用于内存优化：
+  - **`enabled`**: 是否启用批处理模式 (`true` / `false`)。
+  - **`batch_size`**: 每批处理的向量数量。
+  - **`train_batch_size`**: 训练时使用的批大小。
 - **`index_types`**: 一个包含多个索引配置的列表，每个配置包含：
   - **`index_type`**: Faiss 索引的类型，例如 `"Flat"`, `"IVF1024,Flat"`, `"HNSW32,Flat"`。
   - **`params`**: 一个包含索引特定参数的字典，例如 `nprobe` (IVF)、`efSearch` (HNSW) 或 `use_gpu`。
@@ -160,6 +164,44 @@ python main.py --config my_config.yaml
 ```bash
 python main.py --config config.yaml --gpu
 ```
+
+## 批处理模式（内存优化）
+
+对于大型数据集，传统的全量加载方式可能会导致内存不足（OOM）问题。本工具提供了批处理模式来解决这个问题。
+
+### 启用批处理模式
+
+在 `config.yaml` 中设置批处理配置：
+
+```yaml
+batch_processing:
+  enabled: true           # 启用批处理模式
+  batch_size: 100000     # 每批处理 10万个向量
+  train_batch_size: 500000 # 训练时使用 50万个向量
+```
+
+### 批处理模式的优势
+
+1. **内存优化**: 避免一次性加载整个数据集到内存，显著降低内存使用量
+2. **避免 OOM**: 特别适用于处理大型数据集（如 Deep1B）
+3. **灵活配置**: 可根据可用内存调整批次大小
+
+### 批处理参数说明
+
+- **`batch_size`**: 控制每次添加到索引的向量数量
+  - 较小值（如 50K）：内存使用更少，但处理时间可能稍长
+  - 较大值（如 500K）：处理更快，但需要更多内存
+  - 建议根据可用内存设置，通常 50K-500K 之间
+
+- **`train_batch_size`**: 控制训练索引时使用的向量数量
+  - 通常可以设置得比 `batch_size` 更大
+  - 训练阶段相比添加阶段通常需要更少的内存
+
+### 使用建议
+
+- 对于小型数据集（如 SIFT1M），可以保持 `enabled: false` 使用传统模式
+- 对于大型数据集（如 Deep1B），建议启用批处理模式
+- 如果遇到内存不足错误，可以减小 `batch_size` 和 `train_batch_size`
 
 ## 索引缓存
 
