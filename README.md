@@ -40,6 +40,35 @@ data/
 
 ## 配置文件
 
+### 配置文件管理
+
+为了避免 git 管理冲突，本项目采用模板文件方式管理配置：
+
+- **`config.yaml.template`**: 配置模板文件（受 git 管理）
+- **`config.yaml`**: 实际配置文件（被 git 忽略，用户自定义）
+
+#### 首次使用
+
+当您首次运行程序时，如果 `config.yaml` 不存在，程序会自动从 `config.yaml.template` 创建：
+
+```bash
+python main.py --config config.yaml
+# 输出：配置文件 config.yaml 不存在，正在从模板 config.yaml.template 创建...
+# 输出：已创建配置文件 config.yaml，请根据需要修改参数。
+```
+
+#### 手动创建配置文件
+
+您也可以手动复制模板文件：
+
+```bash
+cp config.yaml.template config.yaml
+```
+
+然后根据需要修改 `config.yaml` 中的参数。
+
+#### 配置文件结构
+
 通过 `config.yaml` 文件配置要测试的数据集、算法、搜索参数和 CPU 线程数：### 索引参数 (`params`)
 
 对于特定的索引类型，您可以提供额外的参数进行性能调优。目前支持以下参数：
