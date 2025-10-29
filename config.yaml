@@ -1,5 +1,5 @@
 dataset: "sift"
-
+topk: 10
 index_types:
   - "Flat"
   - "IVF1024,Flat"

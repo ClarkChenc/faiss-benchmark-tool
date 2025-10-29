@@ -40,16 +40,21 @@ data/
 
 ## 配置文件
 
-通过 `config.yaml` 文件配置要测试的数据集和算法：
+通过 `config.yaml` 文件配置要测试的数据集、算法和搜索参数：
 
 ```yaml
 dataset: "sift"
+topk: 10
 
 index_types:
   - "Flat"
   - "IVF1024,Flat"
   - "HNSW32,Flat"
 ```
+
+- `dataset`: 要加载的数据集名称（不含扩展名）。程序会自动在 `data/` 目录下查找 `{dataset_name}_base.fvecs`、`{dataset_name}_query.fvecs` 和 `{dataset_name}_groundtruth.ivecs`。
+- `topk`: 指定在搜索时返回的最近邻结果数量。这个值会影响召回率的计算（例如 `Recall@10`）。
+- `index_types`: 一个包含要测试的 Faiss 索引字符串的列表。
 
 ### 支持的索引类型
 

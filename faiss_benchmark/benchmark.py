@@ -1,7 +1,7 @@
 import time
 import numpy as np
 
-def run_benchmark(index, xb, xq, gt, k=10):
+def run_benchmark(index, xb, xq, gt, topk=10):
     """Runs the benchmark and returns performance metrics."""
     # Training
     t0 = time.time()
@@ -15,11 +15,11 @@ def run_benchmark(index, xb, xq, gt, k=10):
 
     # Searching
     t0 = time.time()
-    D, I = index.search(xq, k)
+    D, I = index.search(xq, topk)
     search_time = time.time() - t0
 
     # Calculate recall
-    recall = (I[:, :k] == gt[:, :k]).sum() / (len(xq) * k)
+    recall = (I[:, :topk] == gt[:, :topk]).sum() / (len(xq) * topk)
 
     qps = len(xq) / search_time
 

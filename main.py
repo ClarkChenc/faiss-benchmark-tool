@@ -20,6 +20,7 @@ def main():
     config = load_config(args.config)
     dataset_name = config["dataset"]
     index_types = config["index_types"]
+    topk = config.get("topk", 10)
 
     print(f"Loading dataset: {dataset_name}")
     try:
@@ -42,8 +43,8 @@ def main():
         
         try:
             index = create_index(index_type, dimension, use_gpu=args.gpu)
-            results = run_benchmark(index, xb, xq, gt)
-            print_results(index_type, results)
+            results = run_benchmark(index, xb, xq, gt, topk=topk)
+            print_results(index_type, results, topk=topk)
         except Exception as e:
             print(f"Error with index {index_type}: {e}")
             continue
