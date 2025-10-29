@@ -24,7 +24,6 @@ def main():
     dataset_name = config["dataset"]
     index_types = config["index_types"]
     topk = config.get("topk", 10)
-    use_gpu = config.get("use_gpu", False)
 
     print(f"Loading dataset: {dataset_name}")
     try:
@@ -48,7 +47,9 @@ def main():
     for index_config in index_types:
         index_type = index_config["index_type"]
         params = index_config.get("params", {})
-        param_str = "_".join([f"{k}{v}" for k, v in params.items()])
+        use_gpu = params.get("use_gpu", False)
+        
+        param_str = "_".join([f"{k}{v}" for k, v in params.items() if k != 'use_gpu'])
         gpu_str = "_gpu" if use_gpu else ""
         cache_filename = f"{dataset_name}_{index_type}_{param_str}{gpu_str}.index"
         cache_path = os.path.join(cache_dir, cache_filename)
@@ -57,20 +58,23 @@ def main():
         print(f"\nTesting index: {index_type} with params: {params}")
 
         try:
-            if os.path.exists(cache_path) and os.path.exists(meta_path):
+            if not use_gpu and os.path.exists(cache_path) and os.path.exists(meta_path):
                 print(f"Loading index from cache: {cache_path}")
                 index = faiss.read_index(cache_path)
                 with open(meta_path, 'r') as f:
                     build_results = json.load(f)
                 print(f"Using cached build times: train={build_results['train_time']:.3f}s, add={build_results['add_time']:.3f}s")
             else:
+                if use_gpu:
+                    print("GPU mode is enabled. Index will be rebuilt and not cached.")
                 print("Building new index...")
                 index = create_index(index_type, dimension, use_gpu=use_gpu, params=params)
                 build_results = build_index(index, xb)
-                print(f"Saving index to cache: {cache_path}")
-                faiss.write_index(index, cache_path)
-                with open(meta_path, 'w') as f:
-                    json.dump(build_results, f)
+                if not use_gpu:
+                    print(f"Saving index to cache: {cache_path}")
+                    faiss.write_index(index, cache_path)
+                    with open(meta_path, 'w') as f:
+                        json.dump(build_results, f)
 
             search_results = search_index(index, xq, gt, topk=topk, params=params)
             results = {**build_results, **search_results}

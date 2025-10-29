@@ -74,14 +74,17 @@ cp config.yaml.template config.yaml
 - **`dataset`**: 数据集名称，对应 `data/` 目录下的数据集文件前缀。
 - **`topk`**: 搜索时返回的最近邻居数量。
 - **`num_threads`**: Faiss 使用的 CPU 线程数。
-- **`use_gpu`**: 是否使用 GPU 加速 (true / false)。
 - **`index_types`**: 一个包含多个索引配置的列表，每个配置包含：
   - **`index_type`**: Faiss 索引的类型，例如 `"Flat"`, `"IVF1024,Flat"`, `"HNSW32,Flat"`。
-  - **`params`**: 一个包含索引特定参数的字典，例如 `nprobe` (IVF) 或 `efSearch` (HNSW)。
+  - **`params`**: 一个包含索引特定参数的字典，例如 `nprobe` (IVF)、`efSearch` (HNSW) 或 `use_gpu`。
 
 ### 索引参数 (`params`)
 
 对于特定的索引类型，您可以提供额外的参数进行性能调优。目前支持以下参数：
+
+- **`use_gpu`** (通用参数):
+  - **作用**: 指定是否为该特定索引使用 GPU 加速。
+  - **取值**: `true` 或 `false`。
 
 - **`nprobe`** (适用于 `IVF` 系列索引):
   - **作用**: 设置搜索时要访问的聚类中心的数量。这是在搜索速度和召回率之间进行权衡的关键参数。
