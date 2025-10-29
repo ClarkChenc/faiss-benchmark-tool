@@ -1,16 +1,13 @@
 import argparse
 import yaml
+import os
+import json
+import faiss
 from faiss_benchmark.datasets import load_dataset
 from faiss_benchmark.indexes import create_index
-from faiss_benchmark.benchmark import run_benchmark
+from faiss_benchmark.benchmark import build_index, search_index
 from faiss_benchmark.results import print_results
-
-def load_config(config_path="config.yaml"):
-    """Load configuration from YAML file."""
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
-
-import faiss
+from faiss_benchmark.utils import load_config
 
 def main():
     parser = argparse.ArgumentParser(description="Faiss Benchmark Tool")
@@ -42,21 +39,44 @@ def main():
 
     dimension = xb.shape[1]
 
+    cache_dir = "index_cache"
+    os.makedirs(cache_dir, exist_ok=True)
+
     print(f"\nRunning benchmarks with {len(index_types)} index types...")
     print("=" * 50)
 
     for index_config in index_types:
         index_type = index_config["index_type"]
         params = index_config.get("params", {})
+        param_str = "_".join([f"{k}{v}" for k, v in params.items()])
+        cache_filename = f"{dataset_name}_{index_type}_{param_str}.index"
+        cache_path = os.path.join(cache_dir, cache_filename)
+        meta_path = os.path.join(cache_dir, cache_filename.replace('.index', '_meta.json'))
 
         print(f"\nTesting index: {index_type} with params: {params}")
-        
+
         try:
-            index = create_index(index_type, dimension, use_gpu=args.gpu, params=params)
-            results = run_benchmark(index, xb, xq, gt, topk=topk, params=params)
+            if os.path.exists(cache_path) and os.path.exists(meta_path):
+                print(f"Loading index from cache: {cache_path}")
+                index = faiss.read_index(cache_path)
+                with open(meta_path, 'r') as f:
+                    build_results = json.load(f)
+                print(f"Using cached build times: train={build_results['train_time']:.3f}s, add={build_results['add_time']:.3f}s")
+            else:
+                print("Building new index...")
+                index = create_index(index_type, dimension, use_gpu=args.gpu, params=params)
+                build_results = build_index(index, xb)
+                print(f"Saving index to cache: {cache_path}")
+                faiss.write_index(index, cache_path)
+                with open(meta_path, 'w') as f:
+                    json.dump(build_results, f)
+
+            search_results = search_index(index, xq, gt, topk=topk, params=params)
+            results = {**build_results, **search_results}
             print_results(index_type, results, topk=topk)
+
         except Exception as e:
-            print(f"Error with index {index_type}: {e}")
+            print(f"Error benchmarking {index_type}: {e}")
             continue
 
 if __name__ == "__main__":
