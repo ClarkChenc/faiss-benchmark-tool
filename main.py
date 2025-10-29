@@ -10,6 +10,8 @@ def load_config(config_path="config.yaml"):
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
+import faiss
+
 def main():
     parser = argparse.ArgumentParser(description="Faiss Benchmark Tool")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
@@ -18,6 +20,11 @@ def main():
 
     # Load configuration
     config = load_config(args.config)
+
+    # Set number of threads for Faiss
+    num_threads = config.get("num_threads", 1)
+    faiss.omp_set_num_threads(num_threads)
+
     dataset_name = config["dataset"]
     index_types = config["index_types"]
     topk = config.get("topk", 10)

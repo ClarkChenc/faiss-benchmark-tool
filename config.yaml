@@ -1,5 +1,6 @@
 dataset: "sift"
 topk: 10
+num_threads: 4
 index_types:
   - "Flat"
   - "IVF1024,Flat"

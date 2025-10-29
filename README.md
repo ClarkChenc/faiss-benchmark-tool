@@ -40,11 +40,12 @@ data/
 
 ## 配置文件
 
-通过 `config.yaml` 文件配置要测试的数据集、算法和搜索参数：
+通过 `config.yaml` 文件配置要测试的数据集、算法、搜索参数和 CPU 线程数：
 
 ```yaml
 dataset: "sift"
 topk: 10
+num_threads: 4
 
 index_types:
   - "Flat"
@@ -54,6 +55,7 @@ index_types:
 
 - `dataset`: 要加载的数据集名称（不含扩展名）。程序会自动在 `data/` 目录下查找 `{dataset_name}_base.fvecs`、`{dataset_name}_query.fvecs` 和 `{dataset_name}_groundtruth.ivecs`。
 - `topk`: 指定在搜索时返回的最近邻结果数量。这个值会影响召回率的计算（例如 `Recall@10`）。
+- `num_threads`: 指定 Faiss 在 CPU 上进行计算时可以使用的线程数。这对于在多核 CPU 上加速索引构建和搜索非常有用。
 - `index_types`: 一个包含要测试的 Faiss 索引字符串的列表。
 
 ### 支持的索引类型
