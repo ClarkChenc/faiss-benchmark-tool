@@ -120,6 +120,34 @@ python main.py --config config.yaml --gpu
 
 ## 工具
 
+### 数据集生成工具
+
+项目提供了一个 `generate_dataset.py` 工具，用于将单个 `.fvecs` 文件分割成 `query` 和 `base` 两部分，并生成对应的 groundtruth 文件。这对于创建标准的基准测试数据集非常有用。
+
+#### 使用方法
+
+```bash
+python generate_dataset.py --input <input_file> --queries <num_queries> --topk <topk> --output <output_prefix>
+```
+
+- `--input` (`-i`): 输入的 `.fvecs` 文件路径
+- `--queries` (`-q`): 要分割出的 query 向量数量
+- `--topk` (`-k`): 每个 query 的最近邻数量（默认: 100）
+- `--output` (`-o`): 输出文件前缀（不含扩展名）
+
+#### 示例
+
+将 `sift.fvecs` 分割成 1000 个 query 向量和剩余的 base 向量，并生成 top-100 的 groundtruth：
+
+```bash
+python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift
+```
+
+这将生成以下文件：
+- `data/sift_query.fvecs` - 1000 个 query 向量
+- `data/sift_base.fvecs` - 剩余的 base 向量
+- `data/sift_groundtruth.ivecs` - 每个 query 的前 100 个最近邻
+
 ### 数据集切割工具
 
 项目提供了一个 `split_dataset.py` 工具，用于将 `.fvecs` 和 `.ivecs` 文件按指定的条目数进行切割，方便创建小规模的测试样本。
