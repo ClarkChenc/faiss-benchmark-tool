@@ -11,110 +11,174 @@ import os
 import numpy as np
 import faiss
 from tqdm import tqdm
-from faiss_benchmark.utils import fvecs_read, fvecs_write, ivecs_write
+from faiss_benchmark.utils import (
+    fvecs_read, fvecs_write, ivecs_write, 
+    get_fvecs_info, fvecs_read_range, fvecs_write_streaming
+)
 
 
-def split_dataset(input_file, num_queries, output_prefix):
+def split_dataset(input_file, num_queries, output_prefix, chunk_size=50000):
     """
-    将输入的 .fvecs 文件分割成 query 和 base 两部分
+    将输入的 .fvecs 文件分割成 query 和 base 两部分（流式处理，内存友好）
 
     Args:
         input_file: 输入的 .fvecs 文件路径
         num_queries: query 集合的向量数量
         output_prefix: 输出文件的前缀（不含扩展名）
+        chunk_size: 每次处理的向量数量（默认50000，约200MB内存）
 
     Returns:
         tuple: (query_vectors, base_vectors) 分别为 query 和 base 向量数组
     """
-    print(f"正在读取数据文件: {input_file}")
-    vectors = fvecs_read(input_file)
-
-    if len(vectors) < num_queries:
+    print(f"正在分析数据文件: {input_file}")
+    
+    # 获取文件信息，不加载数据
+    total_vectors, dimension = get_fvecs_info(input_file)
+    
+    if total_vectors < num_queries:
         raise ValueError(
-            f"数据集总数量 ({len(vectors)}) 小于请求的 query 数量 ({num_queries})"
+            f"数据集总数量 ({total_vectors}) 小于请求的 query 数量 ({num_queries})"
         )
 
-    # 分割数据集
-    query_vectors = vectors[:num_queries]
-    base_vectors = vectors[num_queries:]
-
-    # 保存分割后的文件
+    num_base = total_vectors - num_queries
+    
+    print(f"数据集信息: {total_vectors} 个向量, {dimension} 维")
+    print(f"将分割为: {num_queries} 个 query 向量, {num_base} 个 base 向量")
+    
+    # 输出文件路径
     query_file = f"{output_prefix}_query.fvecs"
     base_file = f"{output_prefix}_base.fvecs"
 
-    print(f"保存 query 向量到: {query_file} ({len(query_vectors)} 个向量)")
-    fvecs_write(query_file, query_vectors)
+    # 流式处理 query 向量
+    print(f"正在保存 query 向量到: {query_file}")
+    
+    def query_generator():
+        remaining = num_queries
+        current_idx = 0
+        
+        while remaining > 0:
+            batch_size = min(chunk_size, remaining)
+            vectors = fvecs_read_range(input_file, current_idx, batch_size)
+            yield vectors
+            
+            current_idx += batch_size
+            remaining -= batch_size
+    
+    fvecs_write_streaming(query_file, query_generator(), num_queries)
+    
+    # 流式处理 base 向量
+    print(f"正在保存 base 向量到: {base_file}")
+    
+    def base_generator():
+        remaining = num_base
+        current_idx = num_queries
+        
+        while remaining > 0:
+            batch_size = min(chunk_size, remaining)
+            vectors = fvecs_read_range(input_file, current_idx, batch_size)
+            yield vectors
+            
+            current_idx += batch_size
+            remaining -= batch_size
+    
+    fvecs_write_streaming(base_file, base_generator(), num_base)
+    
+    print("数据分割完成!")
+    
+    # 为了保持向后兼容，返回小批量的数据用于后续处理
+    # 只加载少量数据到内存，而不是全部
+    sample_size = min(1000, num_queries)
+    query_sample = fvecs_read_range(input_file, 0, sample_size)
+    
+    sample_size = min(1000, num_base)
+    base_sample = fvecs_read_range(input_file, num_queries, sample_size)
+    
+    return query_sample, base_sample
 
-    print(f"保存 base 向量到: {base_file} ({len(base_vectors)} 个向量)")
-    fvecs_write(base_file, base_vectors)
 
-    return query_vectors, base_vectors
-
-
-def create_index(base_vectors, use_gpu=False):
+def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000):
     """
-    创建索引用于 groundtruth 生成
+    创建索引用于 groundtruth 生成（支持流式加载）
 
     Args:
-        base_vectors: base 向量数组
+        base_file_or_vectors: base 向量文件路径或向量数组
         use_gpu: 是否使用 GPU
+        chunk_size: 流式加载时的批处理大小
 
     Returns:
         faiss.Index: 创建的索引
     """
-    dimension = base_vectors.shape[1]
+    # 判断输入类型
+    if isinstance(base_file_or_vectors, str):
+        # 文件路径，使用流式加载
+        base_file = base_file_or_vectors
+        total_vectors, dimension = get_fvecs_info(base_file)
+        
+        print(f"从文件流式加载 base 向量: {base_file}")
+        print(f"向量信息: {total_vectors} 个向量, {dimension} 维")
+        
+        if use_gpu:
+            # 检查 GPU 可用性
+            if not faiss.get_num_gpus():
+                raise RuntimeError("未检测到可用的 GPU")
 
-    if use_gpu:
-        # 检查 GPU 可用性
-        if not faiss.get_num_gpus():
-            raise RuntimeError("未检测到可用的 GPU")
+            print(f"使用 GPU 创建索引 (维度: {dimension})")
+            # 创建 GPU 索引
+            res = faiss.StandardGpuResources()
+            index_cpu = faiss.IndexFlatL2(dimension)
+            index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
+        else:
+            print(f"使用 CPU 创建索引 (维度: {dimension})")
+            index = faiss.IndexFlatL2(dimension)
 
-        print(f"使用 GPU 创建索引 (维度: {dimension})")
-        # 创建 GPU 索引
-        res = faiss.StandardGpuResources()
-        index_cpu = faiss.IndexFlatL2(dimension)
-        index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
+        # 流式添加向量到索引
+        print(f"正在流式添加 {total_vectors} 个向量到索引...")
+        
+        current_idx = 0
+        remaining = total_vectors
+        
+        with tqdm(total=total_vectors, desc="添加向量") as pbar:
+            while remaining > 0:
+                batch_size = min(chunk_size, remaining)
+                vectors = fvecs_read_range(base_file, current_idx, batch_size)
+                
+                # 添加到索引
+                index.add(vectors.astype(np.float32))
+                
+                current_idx += batch_size
+                remaining -= batch_size
+                pbar.update(batch_size)
+                
+                # 清理内存
+                del vectors
+        
     else:
-        print(f"使用 CPU 创建索引 (维度: {dimension})")
-        index = faiss.IndexFlatL2(dimension)
+        # 向量数组，保持原有逻辑
+        base_vectors = base_file_or_vectors
+        dimension = base_vectors.shape[1]
 
-    # 添加 base 向量到索引
-    print(f"添加 {len(base_vectors)} 个向量到索引...")
-    index.add(base_vectors.astype(np.float32))
+        if use_gpu:
+            # 检查 GPU 可用性
+            if not faiss.get_num_gpus():
+                raise RuntimeError("未检测到可用的 GPU")
+
+            print(f"使用 GPU 创建索引 (维度: {dimension})")
+            # 创建 GPU 索引
+            res = faiss.StandardGpuResources()
+            index_cpu = faiss.IndexFlatL2(dimension)
+            index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
+        else:
+            print(f"使用 CPU 创建索引 (维度: {dimension})")
+            index = faiss.IndexFlatL2(dimension)
+
+        # 添加 base 向量到索引
+        print(f"添加 {len(base_vectors)} 个向量到索引...")
+        index.add(base_vectors.astype(np.float32))
 
     return index
 
 
-def generate_groundtruth_batch(query_vectors, index, topk, batch_size=10000):
-    """
-    分批生成 groundtruth
 
-    Args:
-        query_vectors: query 向量数组
-        index: faiss 索引
-        topk: 每个 query 返回的最近邻数量
-        batch_size: 批处理大小
-
-    Returns:
-        np.ndarray: groundtruth 索引数组
-    """
-    num_queries = len(query_vectors)
-    all_indices = []
-
-    print(f"正在生成 groundtruth (topk={topk}, batch_size={batch_size})...")
-
-    # 分批处理
-    for start_idx in tqdm(range(0, num_queries, batch_size), desc="处理批次"):
-        end_idx = min(start_idx + batch_size, num_queries)
-        batch_queries = query_vectors[start_idx:end_idx]
-
-        # 搜索最近邻
-        distances, indices = index.search(batch_queries.astype(np.float32), topk)
-        all_indices.append(indices)
-
-    # 合并所有批次的结果
-    groundtruth = np.vstack(all_indices)
-    return groundtruth
 
 
 def estimate_memory_usage(num_base, num_queries, dimension, topk, use_gpu=False):
@@ -232,16 +296,26 @@ def main():
         return 1
 
     try:
-        # 分割数据集
-        query_vectors, base_vectors = split_dataset(
+        # 获取数据集信息（不加载数据）
+        total_vectors, dimension = get_fvecs_info(args.input)
+        num_base = total_vectors - args.queries
+        
+        print(f"\n数据集信息:")
+        print(f"  总向量数: {total_vectors}")
+        print(f"  维度: {dimension}")
+        print(f"  Query 向量数: {args.queries}")
+        print(f"  Base 向量数: {num_base}")
+
+        # 分割数据集（流式处理，内存友好）
+        query_sample, base_sample = split_dataset(
             args.input, args.queries, args.output
         )
 
-        # 估算内存使用
+        # 估算内存使用（基于实际数据量）
         memory_info = estimate_memory_usage(
-            len(base_vectors),
-            len(query_vectors),
-            base_vectors.shape[1],
+            num_base,
+            args.queries,
+            dimension,
             args.topk,
             args.gpu,
         )
@@ -255,28 +329,59 @@ def main():
 
         # 确定批处理大小
         if args.batch_size == 0:
-            batch_size = suggest_batch_size(len(query_vectors), args.memory_limit)
+            batch_size = suggest_batch_size(args.queries, args.memory_limit)
             print(f"\n自动选择批处理大小: {batch_size}")
         else:
             batch_size = args.batch_size
             print(f"\n使用指定批处理大小: {batch_size}")
 
-        # 创建索引
-        index = create_index(base_vectors, args.gpu)
+        # 清理样本数据，释放内存
+        del query_sample, base_sample
 
-        # 生成 groundtruth
+        # 创建索引（使用流式加载）
+        base_file = f"{args.output}_base.fvecs"
+        index = create_index(base_file, args.gpu)
+
+        # 生成 groundtruth（使用流式加载 query 向量）
+        query_file = f"{args.output}_query.fvecs"
         groundtruth_file = f"{args.output}_groundtruth.ivecs"
-        groundtruth = generate_groundtruth_batch(
-            query_vectors, index, args.topk, batch_size
-        )
+        
+        print(f"\n正在生成 groundtruth...")
+        
+        # 流式处理 query 向量生成 groundtruth
+        all_groundtruth = []
+        current_idx = 0
+        remaining_queries = args.queries
+        
+        with tqdm(total=args.queries, desc="生成 groundtruth") as pbar:
+            while remaining_queries > 0:
+                current_batch_size = min(batch_size, remaining_queries)
+                
+                # 读取当前批次的 query 向量
+                query_batch = fvecs_read_range(query_file, current_idx, current_batch_size)
+                
+                # 搜索最近邻
+                _, batch_groundtruth = index.search(query_batch.astype(np.float32), args.topk)
+                all_groundtruth.append(batch_groundtruth)
+                
+                current_idx += current_batch_size
+                remaining_queries -= current_batch_size
+                pbar.update(current_batch_size)
+                
+                # 清理当前批次数据
+                del query_batch
+        
+        # 合并所有 groundtruth
+        groundtruth = np.vstack(all_groundtruth)
+        del all_groundtruth  # 清理中间数据
 
         # 保存 groundtruth
         print(f"保存 groundtruth 到: {groundtruth_file}")
         ivecs_write(groundtruth_file, groundtruth.astype(np.int32))
 
         print("\n数据集生成完成!")
-        print(f"Query 向量数量: {len(query_vectors)}")
-        print(f"Base 向量数量: {len(base_vectors)}")
+        print(f"Query 向量数量: {args.queries}")
+        print(f"Base 向量数量: {num_base}")
         print(f"Groundtruth topk: {args.topk}")
         print(f"使用设备: {'GPU' if args.gpu else 'CPU'}")
         print(f"批处理大小: {batch_size}")

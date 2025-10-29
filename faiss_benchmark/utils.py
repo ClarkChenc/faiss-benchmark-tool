@@ -22,6 +22,94 @@ def ivecs_write(fname, m):
     m1[:, 1:] = m
     m1.tofile(fname)
 
+def get_fvecs_info(fname):
+    """
+    获取 .fvecs 文件的基本信息，不加载数据
+    
+    Args:
+        fname: 文件路径
+        
+    Returns:
+        tuple: (向量数量, 维度)
+    """
+    with open(fname, 'rb') as f:
+        # 读取第一个向量的维度信息
+        d = np.frombuffer(f.read(4), dtype='int32')[0]
+        
+        # 计算文件大小和向量数量
+        f.seek(0, 2)  # 移动到文件末尾
+        file_size = f.tell()
+        vector_size = (d + 1) * 4  # 每个向量的字节数 (维度 + 数据)
+        num_vectors = file_size // vector_size
+        
+    return num_vectors, d
+
+def fvecs_read_range(fname, start_idx, count):
+    """
+    读取 .fvecs 文件中指定范围的向量
+    
+    Args:
+        fname: 文件路径
+        start_idx: 起始向量索引
+        count: 读取向量数量
+        
+    Returns:
+        numpy.ndarray: 读取的向量数组
+    """
+    with open(fname, 'rb') as f:
+        # 读取第一个向量的维度信息
+        d = np.frombuffer(f.read(4), dtype='int32')[0]
+        f.seek(0)  # 重置到文件开头
+        
+        # 计算偏移量
+        vector_size = (d + 1) * 4  # 每个向量的字节数
+        offset = start_idx * vector_size
+        f.seek(offset)
+        
+        # 读取指定数量的向量
+        data_size = count * vector_size
+        data = np.frombuffer(f.read(data_size), dtype='int32')
+        
+        # 重塑并移除维度列
+        vectors = data.reshape(-1, d + 1)[:, 1:].copy()
+        
+    return vectors.view('float32')
+
+def fvecs_write_streaming(fname, vectors_generator, total_count=None):
+    """
+    流式写入 .fvecs 文件
+    
+    Args:
+        fname: 输出文件路径
+        vectors_generator: 向量生成器，每次产生一批向量
+        total_count: 总向量数量（可选，用于显示进度）
+    """
+    with open(fname, 'wb') as f:
+        written_count = 0
+        
+        for vectors in vectors_generator:
+            if len(vectors) == 0:
+                continue
+                
+            # 转换为正确的格式并写入
+            vectors = vectors.astype('float32')
+            n, d = vectors.shape
+            
+            # 创建带维度信息的数组
+            m1 = np.empty((n, d + 1), dtype='int32')
+            m1[:, 0] = d
+            m1[:, 1:] = vectors.view('int32')
+            
+            # 写入文件
+            m1.tofile(f)
+            written_count += n
+            
+            if total_count:
+                print(f"\r已写入 {written_count}/{total_count} 个向量", end='', flush=True)
+        
+        if total_count:
+            print()  # 换行
+
 def load_config(config_path):
     """
     加载配置文件。如果配置文件不存在，会尝试从模板文件创建。
