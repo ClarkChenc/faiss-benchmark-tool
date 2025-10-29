@@ -19,7 +19,11 @@ def run_benchmark(index, xb, xq, gt, topk=10):
     search_time = time.time() - t0
 
     # Calculate recall
-    recall = (I[:, :topk] == gt[:, :topk]).sum() / (len(xq) * topk)
+    n_ok = 0
+    for i in range(xq.shape[0]):
+        n_ok += len(np.intersect1d(I[i, :topk], gt[i, :topk]))
+    
+    recall = n_ok / (len(xq) * topk)
 
     qps = len(xq) / search_time
 
