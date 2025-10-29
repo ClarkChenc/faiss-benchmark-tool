@@ -10,6 +10,9 @@ topk: 100
 # 线程数
 num_threads: 10
 
+# 是否使用 GPU (true / false)
+use_gpu: false
+
 # 索引类型配置
 index_types:
   # 暴力搜索索引（精确搜索）

@@ -12,7 +12,6 @@ from faiss_benchmark.utils import load_config
 def main():
     parser = argparse.ArgumentParser(description="Faiss Benchmark Tool")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
-    parser.add_argument("--gpu", action="store_true", help="Use GPU acceleration")
     args = parser.parse_args()
 
     # Load configuration
@@ -25,6 +24,7 @@ def main():
     dataset_name = config["dataset"]
     index_types = config["index_types"]
     topk = config.get("topk", 10)
+    use_gpu = config.get("use_gpu", False)
 
     print(f"Loading dataset: {dataset_name}")
     try:
@@ -49,7 +49,8 @@ def main():
         index_type = index_config["index_type"]
         params = index_config.get("params", {})
         param_str = "_".join([f"{k}{v}" for k, v in params.items()])
-        cache_filename = f"{dataset_name}_{index_type}_{param_str}.index"
+        gpu_str = "_gpu" if use_gpu else ""
+        cache_filename = f"{dataset_name}_{index_type}_{param_str}{gpu_str}.index"
         cache_path = os.path.join(cache_dir, cache_filename)
         meta_path = os.path.join(cache_dir, cache_filename.replace('.index', '_meta.json'))
 
@@ -64,7 +65,7 @@ def main():
                 print(f"Using cached build times: train={build_results['train_time']:.3f}s, add={build_results['add_time']:.3f}s")
             else:
                 print("Building new index...")
-                index = create_index(index_type, dimension, use_gpu=args.gpu, params=params)
+                index = create_index(index_type, dimension, use_gpu=use_gpu, params=params)
                 build_results = build_index(index, xb)
                 print(f"Saving index to cache: {cache_path}")
                 faiss.write_index(index, cache_path)

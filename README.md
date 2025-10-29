@@ -69,7 +69,17 @@ cp config.yaml.template config.yaml
 
 #### 配置文件结构
 
-通过 `config.yaml` 文件配置要测试的数据集、算法、搜索参数和 CPU 线程数：### 索引参数 (`params`)
+通过 `config.yaml` 文件配置要测试的数据集、算法、搜索参数和 CPU 线程数：
+
+- **`dataset`**: 数据集名称，对应 `data/` 目录下的数据集文件前缀。
+- **`topk`**: 搜索时返回的最近邻居数量。
+- **`num_threads`**: Faiss 使用的 CPU 线程数。
+- **`use_gpu`**: 是否使用 GPU 加速 (true / false)。
+- **`index_types`**: 一个包含多个索引配置的列表，每个配置包含：
+  - **`index_type`**: Faiss 索引的类型，例如 `"Flat"`, `"IVF1024,Flat"`, `"HNSW32,Flat"`。
+  - **`params`**: 一个包含索引特定参数的字典，例如 `nprobe` (IVF) 或 `efSearch` (HNSW)。
+
+### 索引参数 (`params`)
 
 对于特定的索引类型，您可以提供额外的参数进行性能调优。目前支持以下参数：
 
