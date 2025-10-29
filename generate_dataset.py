@@ -117,6 +117,9 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000):
         print(f"从文件流式加载 base 向量: {base_file}")
         print(f"向量信息: {total_vectors} 个向量, {dimension} 维")
         
+        # 确保 dimension 是正确的整数类型
+        dimension = int(dimension)
+        
         if use_gpu:
             # 检查 GPU 可用性
             if not faiss.get_num_gpus():
@@ -125,11 +128,11 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000):
             print(f"使用 GPU 创建索引 (维度: {dimension})")
             # 创建 GPU 索引
             res = faiss.StandardGpuResources()
-            index_cpu = faiss.IndexFlatL2(dimension)
+            index_cpu = faiss.IndexFlatL2(int(dimension))
             index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
-            index = faiss.IndexFlatL2(dimension)
+            index = faiss.IndexFlatL2(int(dimension))
 
         # 流式添加向量到索引
         print(f"正在流式添加 {total_vectors} 个向量到索引...")
@@ -155,7 +158,7 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000):
     else:
         # 向量数组，保持原有逻辑
         base_vectors = base_file_or_vectors
-        dimension = base_vectors.shape[1]
+        dimension = int(base_vectors.shape[1])
 
         if use_gpu:
             # 检查 GPU 可用性
@@ -165,11 +168,11 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000):
             print(f"使用 GPU 创建索引 (维度: {dimension})")
             # 创建 GPU 索引
             res = faiss.StandardGpuResources()
-            index_cpu = faiss.IndexFlatL2(dimension)
+            index_cpu = faiss.IndexFlatL2(int(dimension))
             index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
-            index = faiss.IndexFlatL2(dimension)
+            index = faiss.IndexFlatL2(int(dimension))
 
         # 添加 base 向量到索引
         print(f"添加 {len(base_vectors)} 个向量到索引...")
