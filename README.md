@@ -111,6 +111,30 @@ python main.py --config config.yaml --gpu
 
 可以在 `benchmark.py` 中的 `run_benchmark` 函数中修改 `k` 参数来改变返回的结果数量。
 
+## 工具
+
+### 数据集切割工具
+
+项目提供了一个 `split_dataset.py` 工具，用于将 `.fvecs` 和 `.ivecs` 文件按指定的条目数进行切割，方便创建小规模的测试样本。
+
+#### 使用方法
+
+```bash
+python split_dataset.py --input <input_file> --output <output_file> --count <num_entries>
+```
+
+- `--input`: 输入文件路径（例如 `data/sift_base.fvecs`）
+- `--output`: 输出文件路径（例如 `data/sift_base_10k.fvecs`）
+- `--count`: 要保留的条目数量
+
+#### 示例
+
+将 `sift_base.fvecs` 切割为包含 10000 个向量的新文件：
+
+```bash
+python split_dataset.py -i data/sift_base.fvecs -o data/sift_base_10k.fvecs -c 10000
+```
+
 ## 项目结构
 
 ```
