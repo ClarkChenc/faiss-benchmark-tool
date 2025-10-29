@@ -153,7 +153,7 @@ def estimate_memory_usage(num_base, num_queries, dimension, topk, use_gpu=False)
     }
 
 
-def suggest_batch_size(num_queries, available_memory_gb=8.0):
+def suggest_batch_size(num_queries, available_memory_gb=16.0):
     """
     根据可用内存建议批处理大小
 
@@ -215,8 +215,8 @@ def main():
     parser.add_argument(
         "--memory-limit",
         type=float,
-        default=8.0,
-        help="内存限制 (GB，用于自动选择批处理大小，默认: 8.0)",
+        default=16.0,
+        help="内存限制 (GB，用于自动选择批处理大小，默认: 16.0)",
     )
 
     args = parser.parse_args()

@@ -12,7 +12,7 @@ num_threads: 10
 
 # 批处理配置（用于内存优化）
 batch_processing:
-  enabled: false           # 是否启用批处理模式
+  enabled: true            # 是否启用批处理模式（默认启用以避免 OOM）
   batch_size: 100000      # 每批处理的向量数量
   train_batch_size: 500000 # 训练时使用的批大小（通常可以更大）
 
