@@ -52,7 +52,13 @@ data/
     - `nprobe=16` 或 `nprobe=32`: 在速度和召回率之间取得较好的平衡。
     - `nprobe` 值越大，召回率越高，但搜索速度越慢。
 
-#### 示例配置
+- **`efConstruction`** (适用于 `HNSW` 索引):
+  - **作用**: 在索引构建时，控制图的质量。值越高，图质量越好，搜索精度越高，但构建时间越长。
+  - **建议**: 通常设置为 `40`。
+
+- **`efSearch`** (适用于 `HNSW` 索引):
+  - **作用**: 在搜索时，控制搜索的广度。值越高，搜索越精确，召回率越高，但搜索时间越长。
+  - **建议**: 通常设置为 `16`。
 
 ```yaml
 dataset: "sift"
@@ -68,7 +74,9 @@ index_types:
       nprobe: 16  # 设置 nprobe 为 16
 
   - index_type: "HNSW32,Flat"
-    params: {}
+    params:
+      efConstruction: 40
+      efSearch: 16
 ```
 
 - `dataset`: 要加载的数据集名称（不含扩展名）。程序会自动在 `data/` 目录下查找 `{dataset_name}_base.fvecs`、`{dataset_name}_query.fvecs` 和 `{dataset_name}_groundtruth.ivecs`。

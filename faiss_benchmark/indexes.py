@@ -6,8 +6,15 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
         index = faiss.index_factory(dimension, index_type)
 
         if params:
-            param_string = ",".join(f"{k}={v}" for k, v in params.items())
-            faiss.ParameterSpace().set_index_parameters(index, param_string)
+            # Handle IVF params
+            if "nprobe" in params:
+                faiss.ParameterSpace().set_index_parameter(index, "nprobe", params["nprobe"])
+
+            # Handle HNSW params
+            if "HNSW" in index_type:
+                hnsw_index = faiss.downcast_index(index)
+                if hnsw_index and "efConstruction" in params:
+                    hnsw_index.hnsw.efConstruction = params["efConstruction"]
 
         if use_gpu:
             res = faiss.StandardGpuResources()

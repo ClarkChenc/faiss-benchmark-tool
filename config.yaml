@@ -1,6 +1,6 @@
 dataset: "sift"
-topk: 10
-num_threads: 4
+topk: 100
+num_threads: 10
 index_types:
   - index_type: "Flat"
     params: {}
@@ -8,4 +8,6 @@ index_types:
     params:
       nprobe: 16
   - index_type: "HNSW32,Flat"
-    params: {}
+    params:
+      efConstruction: 40
+      efSearch: 16

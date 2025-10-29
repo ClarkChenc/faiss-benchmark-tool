@@ -53,7 +53,7 @@ def main():
         
         try:
             index = create_index(index_type, dimension, use_gpu=args.gpu, params=params)
-            results = run_benchmark(index, xb, xq, gt, topk=topk)
+            results = run_benchmark(index, xb, xq, gt, topk=topk, params=params)
             print_results(index_type, results, topk=topk)
         except Exception as e:
             print(f"Error with index {index_type}: {e}")

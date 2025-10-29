@@ -1,7 +1,7 @@
 import time
 import numpy as np
 
-def run_benchmark(index, xb, xq, gt, topk=10):
+def run_benchmark(index, xb, xq, gt, topk=10, params=None):
     """Runs the benchmark and returns performance metrics."""
     # Training
     t0 = time.time()
@@ -12,6 +12,14 @@ def run_benchmark(index, xb, xq, gt, topk=10):
     t0 = time.time()
     index.add(xb)
     add_time = time.time() - t0
+
+    # Set HNSW search parameter
+    if params and "efSearch" in params:
+        try:
+            index.hnsw.efSearch = params["efSearch"]
+        except AttributeError:
+            # Not an HNSW index, or a wrapped one, ignore
+            pass
 
     # Searching
     t0 = time.time()
