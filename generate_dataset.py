@@ -129,6 +129,47 @@ def check_memory_feasibility(num_vectors, dimension, gpu_memory_gb=10):
     }
 
 
+def calculate_dynamic_batch_size(current_vectors, total_vectors, dimension, gpu_memory_gb, initial_batch_size=50000):
+    """
+    根据当前索引大小动态计算批处理大小
+    
+    Args:
+        current_vectors: 当前已添加的向量数
+        total_vectors: 总向量数
+        dimension: 向量维度
+        gpu_memory_gb: GPU 内存大小
+        initial_batch_size: 初始批处理大小
+        
+    Returns:
+        int: 建议的批处理大小
+    """
+    bytes_per_float = 4
+    
+    # 计算当前索引占用的内存
+    current_index_memory_gb = (current_vectors * dimension * bytes_per_float * 2.2) / (1024**3)
+    
+    # 预留内存（系统 + 缓冲区）
+    reserved_memory_gb = 1.5
+    
+    # 计算可用内存
+    available_memory_gb = gpu_memory_gb - current_index_memory_gb - reserved_memory_gb
+    
+    if available_memory_gb <= 0:
+        # 内存不足，使用最小批大小
+        return min(1000, initial_batch_size)
+    
+    # 计算最大安全批大小（考虑 1.5x 开销）
+    max_safe_batch_size = int(available_memory_gb * 1024**3 / (dimension * bytes_per_float * 1.5))
+    
+    # 限制在合理范围内
+    min_batch_size = 1000
+    max_batch_size = min(100000, initial_batch_size * 2)
+    
+    optimal_batch_size = max(min_batch_size, min(max_safe_batch_size, max_batch_size))
+    
+    return optimal_batch_size
+
+
 def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memory_gb=10):
     """
     创建索引用于 groundtruth 生成（支持流式加载和内存检查）
@@ -190,13 +231,32 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
 
         # 流式添加向量到索引
         print(f"正在流式添加 {total_vectors} 个向量到索引...")
+        if use_gpu:
+            print(f"🔧 启用动态批处理大小调整（GPU 内存: {gpu_memory_gb}GB）")
         
         current_idx = 0
         remaining = total_vectors
+        batch_count = 0
         
         with tqdm(total=total_vectors, desc="添加向量") as pbar:
             while remaining > 0:
-                batch_size = min(chunk_size, remaining)
+                # 如果使用 GPU，动态调整批处理大小
+                if use_gpu:
+                    dynamic_batch_size = calculate_dynamic_batch_size(
+                        current_idx, total_vectors, dimension, gpu_memory_gb, chunk_size
+                    )
+                    batch_size = min(dynamic_batch_size, remaining)
+                    
+                    # 每 10 个批次显示一次批大小调整信息
+                    if batch_count % 10 == 0 and batch_count > 0:
+                        current_memory_gb = (current_idx * dimension * 4 * 2.2) / (1024**3)
+                        pbar.set_postfix({
+                            'batch_size': f'{batch_size:,}',
+                            'index_mem': f'{current_memory_gb:.1f}GB'
+                        })
+                else:
+                    batch_size = min(chunk_size, remaining)
+                
                 vectors = fvecs_read_range(base_file, current_idx, batch_size)
                 
                 # 添加到索引
@@ -204,6 +264,7 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
                 
                 current_idx += batch_size
                 remaining -= batch_size
+                batch_count += 1
                 pbar.update(batch_size)
                 
                 # 清理内存
