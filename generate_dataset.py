@@ -96,14 +96,48 @@ def split_dataset(input_file, num_queries, output_prefix, chunk_size=50000):
     return query_sample, base_sample
 
 
-def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000):
+def check_memory_feasibility(num_vectors, dimension, gpu_memory_gb=10):
     """
-    创建索引用于 groundtruth 生成（支持流式加载）
+    检查在给定 GPU 内存下是否可以建立索引
+    
+    Args:
+        num_vectors: 向量数量
+        dimension: 向量维度
+        gpu_memory_gb: GPU 内存大小 (GB)
+        
+    Returns:
+        dict: 包含可行性分析和建议的字典
+    """
+    bytes_per_float = 4
+    
+    # 计算所需内存
+    data_memory_gb = (num_vectors * dimension * bytes_per_float) / (1024**3)
+    index_memory_gb = data_memory_gb * 1.1  # 10% 开销
+    
+    # 计算分块方案
+    available_memory_gb = gpu_memory_gb - 1  # 预留 1GB
+    max_vectors_per_chunk = int((available_memory_gb * (1024**3)) / (dimension * bytes_per_float * 1.1))
+    num_chunks = (num_vectors + max_vectors_per_chunk - 1) // max_vectors_per_chunk
+    
+    return {
+        'total_memory_required_gb': index_memory_gb,
+        'gpu_memory_gb': gpu_memory_gb,
+        'feasible': index_memory_gb <= gpu_memory_gb,
+        'max_vectors_per_chunk': max_vectors_per_chunk,
+        'num_chunks_needed': num_chunks,
+        'chunk_memory_gb': (max_vectors_per_chunk * dimension * bytes_per_float * 1.1) / (1024**3)
+    }
+
+
+def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memory_gb=10):
+    """
+    创建索引用于 groundtruth 生成（支持流式加载和内存检查）
 
     Args:
         base_file_or_vectors: base 向量文件路径或向量数组
         use_gpu: 是否使用 GPU
         chunk_size: 流式加载时的批处理大小
+        gpu_memory_gb: GPU 内存大小 (GB)，用于内存可行性检查
 
     Returns:
         faiss.Index: 创建的索引
@@ -116,6 +150,26 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000):
         
         print(f"从文件流式加载 base 向量: {base_file}")
         print(f"向量信息: {total_vectors} 个向量, {dimension} 维")
+        
+        # 如果使用 GPU，检查内存可行性
+        if use_gpu:
+            memory_check = check_memory_feasibility(total_vectors, dimension, gpu_memory_gb)
+            print(f"\n🔍 GPU 内存可行性检查:")
+            print(f"  所需内存: {memory_check['total_memory_required_gb']:.2f} GB")
+            print(f"  可用内存: {memory_check['gpu_memory_gb']} GB")
+            
+            if not memory_check['feasible']:
+                print(f"  ❌ 内存不足！超出 {memory_check['total_memory_required_gb'] - memory_check['gpu_memory_gb']:.2f} GB")
+                print(f"\n💡 建议的分块方案:")
+                print(f"  每块最大向量数: {memory_check['max_vectors_per_chunk']:,}")
+                print(f"  需要的块数: {memory_check['num_chunks_needed']}")
+                print(f"  每块内存占用: {memory_check['chunk_memory_gb']:.2f} GB")
+                print(f"\n⚠️  警告: 当前配置可能导致 GPU 内存溢出")
+                print(f"     建议使用 CPU 模式或减少数据量")
+            else:
+                print(f"  ✅ 内存充足，可以使用 GPU 模式")
+        
+        print()
         
         # 确保 dimension 是正确的整数类型
         dimension = int(dimension)
@@ -252,10 +306,16 @@ def main():
   # GPU 模式，自定义批处理大小
   python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift --gpu --batch-size 500
   
+  # GPU 模式，指定 GPU 内存大小（用于内存检查）
+  python generate_dataset.py -i data/large.fvecs -q 1000 -k 100 -o data/large --gpu --gpu-memory 24
+  
   这将会生成:
   - data/sift_query.fvecs (1000 个 query 向量)
   - data/sift_base.fvecs (剩余的 base 向量)
   - data/sift_groundtruth.ivecs (每个 query 的前 100 个最近邻)
+  
+  注意: 使用 --gpu 模式时，程序会自动检查 GPU 内存是否足够，
+        如果内存不足会显示警告和分块建议。
         """,
     )
 
@@ -284,6 +344,12 @@ def main():
         type=float,
         default=16.0,
         help="内存限制 (GB，用于自动选择批处理大小，默认: 16.0)",
+    )
+    parser.add_argument(
+        "--gpu-memory",
+        type=float,
+        default=10.0,
+        help="GPU 内存大小 (GB，用于内存可行性检查，默认: 10.0)",
     )
 
     args = parser.parse_args()
@@ -343,7 +409,7 @@ def main():
 
         # 创建索引（使用流式加载）
         base_file = f"{args.output}_base.fvecs"
-        index = create_index(base_file, args.gpu)
+        index = create_index(base_file, args.gpu, gpu_memory_gb=args.gpu_memory)
 
         # 生成 groundtruth（使用流式加载 query 向量）
         query_file = f"{args.output}_query.fvecs"
