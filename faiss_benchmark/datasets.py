@@ -10,7 +10,7 @@ def fvecs_read(fname):
     return ivecs_read(fname).view('float32')
 
 def load_dataset(name):
-    data_dir = "data"
+    data_dir = os.path.join("data", name)
     base_path = os.path.join(data_dir, f"{name}_base.fvecs")
     query_path = os.path.join(data_dir, f"{name}_query.fvecs")
     groundtruth_path = os.path.join(data_dir, f"{name}_groundtruth.ivecs")
