@@ -40,7 +40,19 @@ data/
 
 ## 配置文件
 
-通过 `config.yaml` 文件配置要测试的数据集、算法、搜索参数和 CPU 线程数：
+通过 `config.yaml` 文件配置要测试的数据集、算法、搜索参数和 CPU 线程数：### 索引参数 (`params`)
+
+对于特定的索引类型，您可以提供额外的参数进行性能调优。目前支持以下参数：
+
+- **`nprobe`** (适用于 `IVF` 系列索引):
+  - **作用**: 设置搜索时要访问的聚类中心的数量。这是在搜索速度和召回率之间进行权衡的关键参数。
+  - **取值**: `1` 到 `nlist` (例如，对于 `IVF1024`,Flat，最大为 `1024`)。
+  - **建议**: 
+    - `nprobe=1`: 速度最快，召回率最低。
+    - `nprobe=16` 或 `nprobe=32`: 在速度和召回率之间取得较好的平衡。
+    - `nprobe` 值越大，召回率越高，但搜索速度越慢。
+
+#### 示例配置
 
 ```yaml
 dataset: "sift"
@@ -48,9 +60,15 @@ topk: 10
 num_threads: 4
 
 index_types:
-  - "Flat"
-  - "IVF1024,Flat"
-  - "HNSW32,Flat"
+  - index_type: "Flat"
+    params: {}
+
+  - index_type: "IVF1024,Flat"
+    params:
+      nprobe: 16  # 设置 nprobe 为 16
+
+  - index_type: "HNSW32,Flat"
+    params: {}
 ```
 
 - `dataset`: 要加载的数据集名称（不含扩展名）。程序会自动在 `data/` 目录下查找 `{dataset_name}_base.fvecs`、`{dataset_name}_query.fvecs` 和 `{dataset_name}_groundtruth.ivecs`。

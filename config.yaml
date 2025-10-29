@@ -2,6 +2,10 @@ dataset: "sift"
 topk: 10
 num_threads: 4
 index_types:
-  - "Flat"
-  - "IVF1024,Flat"
-  - "HNSW32,Flat"
+  - index_type: "Flat"
+    params: {}
+  - index_type: "IVF1024,Flat"
+    params:
+      nprobe: 16
+  - index_type: "HNSW32,Flat"
+    params: {}

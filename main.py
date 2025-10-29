@@ -45,11 +45,14 @@ def main():
     print(f"\nRunning benchmarks with {len(index_types)} index types...")
     print("=" * 50)
 
-    for index_type in index_types:
-        print(f"\nTesting index: {index_type}")
+    for index_config in index_types:
+        index_type = index_config["index_type"]
+        params = index_config.get("params", {})
+
+        print(f"\nTesting index: {index_type} with params: {params}")
         
         try:
-            index = create_index(index_type, dimension, use_gpu=args.gpu)
+            index = create_index(index_type, dimension, use_gpu=args.gpu, params=params)
             results = run_benchmark(index, xb, xq, gt, topk=topk)
             print_results(index_type, results, topk=topk)
         except Exception as e:
