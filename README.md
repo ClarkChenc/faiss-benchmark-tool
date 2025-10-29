@@ -120,33 +120,80 @@ python main.py --config config.yaml --gpu
 
 ## 工具
 
-### 数据集生成工具
+### generate_dataset.py
 
-项目提供了一个 `generate_dataset.py` 工具，用于将单个 `.fvecs` 文件分割成 `query` 和 `base` 两部分，并生成对应的 groundtruth 文件。这对于创建标准的基准测试数据集非常有用。
+数据集生成工具，用于将单个 `.fvecs` 文件分割成 query 和 base 两部分，并生成对应的 groundtruth 文件。支持 GPU 加速和分批计算，适用于大规模数据集。
+
+#### 功能
+- 将 `.fvecs` 文件按指定数量分割为 query 和 base 部分
+- 使用 Faiss 暴力搜索生成准确的 groundtruth
+- **GPU 加速**: 支持使用 GPU 显著加速 groundtruth 生成过程
+- **分批计算**: 支持大规模数据集的分批处理，避免内存溢出
+- **内存估算**: 自动估算内存使用量并建议合适的批处理大小
+- **进度显示**: 实时显示处理进度
+- 支持自定义 topk 值
+- 自动验证输入文件格式和数据完整性
 
 #### 使用方法
 
 ```bash
-python generate_dataset.py --input <input_file> --queries <num_queries> --topk <topk> --output <output_prefix>
+# CPU 模式
+python generate_dataset.py -i <input_file> -q <num_queries> -k <topk> -o <output_prefix>
+
+# GPU 模式
+python generate_dataset.py -i <input_file> -q <num_queries> -k <topk> -o <output_prefix> --gpu
+
+# 自定义批处理大小
+python generate_dataset.py -i <input_file> -q <num_queries> -k <topk> -o <output_prefix> --gpu --batch-size 500
 ```
 
-- `--input` (`-i`): 输入的 `.fvecs` 文件路径
-- `--queries` (`-q`): 要分割出的 query 向量数量
-- `--topk` (`-k`): 每个 query 的最近邻数量（默认: 100）
-- `--output` (`-o`): 输出文件前缀（不含扩展名）
+#### 参数说明
+- `-i, --input`: 输入的 .fvecs 文件路径
+- `-q, --queries`: query 集合的向量数量
+- `-k, --topk`: 每个 query 的最近邻数量 (默认: 100)
+- `-o, --output`: 输出文件前缀 (不含扩展名)
+- `--gpu`: 使用 GPU 加速 groundtruth 生成
+- `--batch-size`: 批处理大小 (0 表示自动选择，默认: 0)
+- `--memory-limit`: 内存限制 (GB，用于自动选择批处理大小，默认: 8.0)
 
 #### 示例
 
-将 `sift.fvecs` 分割成 1000 个 query 向量和剩余的 base 向量，并生成 top-100 的 groundtruth：
-
 ```bash
+# CPU 模式：从 sift.fvecs 中提取 1000 个 query，生成 top-100 groundtruth
 python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift
+
+# GPU 模式：使用 GPU 加速，自动选择批处理大小
+python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift --gpu
+
+# GPU 模式：自定义批处理大小为 500
+python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift --gpu --batch-size 500
+
+# 大数据集：限制内存使用为 16GB
+python generate_dataset.py -i data/large_dataset.fvecs -q 10000 -k 100 -o data/large --gpu --memory-limit 16.0
 ```
 
 这将生成以下文件：
-- `data/sift_query.fvecs` - 1000 个 query 向量
-- `data/sift_base.fvecs` - 剩余的 base 向量
-- `data/sift_groundtruth.ivecs` - 每个 query 的前 100 个最近邻
+- `data/sift_query.fvecs`: 包含 1000 个 query 向量
+- `data/sift_base.fvecs`: 包含剩余的 base 向量
+- `data/sift_groundtruth.ivecs`: 每个 query 的前 100 个最近邻索引
+
+#### 性能优化建议
+
+1. **GPU 加速**: 对于大规模数据集，强烈建议使用 `--gpu` 参数，可以显著提升处理速度
+2. **批处理大小**: 
+   - 自动模式 (`--batch-size 0`) 会根据可用内存自动选择合适的批处理大小
+   - 手动设置时，建议根据 GPU 内存大小调整：
+     - 8GB GPU: 500-1000
+     - 16GB GPU: 1000-2000
+     - 24GB+ GPU: 2000+
+3. **内存管理**: 使用 `--memory-limit` 参数限制内存使用，避免系统内存不足
+
+#### 技术特点
+
+- **准确性**: 使用 Faiss 的 `IndexFlatL2` 进行精确的 L2 距离计算
+- **可扩展性**: 支持处理任意大小的数据集，通过分批计算避免内存限制
+- **兼容性**: 生成的文件格式与标准基准测试数据集完全兼容
+- **错误处理**: 完善的输入验证和错误提示
 
 ### 数据集切割工具
 
