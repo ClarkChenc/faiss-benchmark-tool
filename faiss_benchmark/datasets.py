@@ -30,21 +30,23 @@ def get_dataset_info(name):
         raise FileNotFoundError(f"Dataset files for '{name}' not found in '{data_dir}'. "
                               f"Please download them and place them in the '{data_dir}' directory.")
 
-    # 读取文件头部信息获取维度和数量
+    # 读取文件头部信息获取维度和数量（与 fvecs_read 保持一致）
     with open(base_path, 'rb') as f:
+        # 读取第一个 int32 值，这是维度
         d = np.fromfile(f, dtype='int32', count=1)[0]
         f.seek(0, 2)  # 移动到文件末尾
         file_size = f.tell()
-        n = file_size // ((d + 1) * 4)  # 每个向量占用 (d+1)*4 字节
+        # 每个向量占用 (d+1)*4 字节：1个维度值 + d个float32值
+        n = file_size // ((d + 1) * 4)
     
     # 查询集信息
     xq = fvecs_read(query_path)
     gt = ivecs_read(groundtruth_path)
     
     return {
-        'base_count': n,
-        'dimension': d,
-        'query_count': xq.shape[0],
+        'base_count': int(n),
+        'dimension': int(d),  # 确保是标准 Python int 类型
+        'query_count': int(xq.shape[0]),
         'base_path': base_path,
         'query_vectors': xq,
         'groundtruth': gt

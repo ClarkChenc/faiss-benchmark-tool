@@ -3,6 +3,9 @@ import faiss
 def create_index(index_type: str, dimension: int, use_gpu: bool = False, params: dict = None):
     """Creates a Faiss index, sets its parameters, and moves it to GPU if requested."""
     try:
+        # 确保 dimension 是标准 Python int 类型
+        dimension = int(dimension)
+        
         index = faiss.index_factory(dimension, index_type)
 
         if params:
