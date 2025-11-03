@@ -287,45 +287,45 @@ batch_processing:
 #### 使用方法
 
 ```bash
-# CPU 模式
-python generate_dataset.py -i <input_file> -q <num_queries> -k <topk> -o <output_prefix>
+# CPU 模式（输入为数据集目录路径，目录名即数据集名）
+python generate_dataset.py -i data/sift -q 1000 -k 100
 
-# GPU 模式
-python generate_dataset.py -i <input_file> -q <num_queries> -k <topk> -o <output_prefix> --gpu
+# GPU 模式：使用 GPU 加速，自动选择批处理大小
+python generate_dataset.py -i data/sift -q 1000 -k 100 --gpu
 
-# 自定义批处理大小
-python generate_dataset.py -i <input_file> -q <num_queries> -k <topk> -o <output_prefix> --gpu --batch-size 500
+# GPU 模式：自定义批处理大小
+python generate_dataset.py -i data/sift -q 1000 -k 100 --gpu --batch-size 500
 ```
 
 #### 参数说明
-- `-i, --input`: 输入的 .fvecs 文件路径
+- `-i, --input`: 输入的数据集目录路径（目录下需包含同名 `.fvecs` 文件，例如 `data/sift/sift.fvecs`）
 - `-q, --queries`: query 集合的向量数量
 - `-k, --topk`: 每个 query 的最近邻数量 (默认: 100)
-- `-o, --output`: 输出文件前缀 (不含扩展名)
 - `--gpu`: 使用 GPU 加速 groundtruth 生成
 - `--batch-size`: 批处理大小 (0 表示自动选择，默认: 0)
-- `--memory-limit`: 内存限制 (GB，用于自动选择批处理大小，默认: 8.0)
+- `--memory-limit`: 内存限制 (GB，用于自动选择批处理大小，默认: 16.0)
+- `--gpu-memory`: GPU 内存大小 (GB，用于可行性检查与分块建议，默认: 10.0)
 
 #### 示例
 
 ```bash
-# CPU 模式：从 sift.fvecs 中提取 1000 个 query，生成 top-100 groundtruth
-python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift
+# CPU 模式：从 data/sift/sift.fvecs 中提取 1000 个 query，生成 top-100 groundtruth
+python generate_dataset.py -i data/sift -q 1000 -k 100
 
 # GPU 模式：使用 GPU 加速，自动选择批处理大小
-python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift --gpu
+python generate_dataset.py -i data/sift -q 1000 -k 100 --gpu
 
 # GPU 模式：自定义批处理大小为 500
-python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift --gpu --batch-size 500
+python generate_dataset.py -i data/sift -q 1000 -k 100 --gpu --batch-size 500
 
-# 大数据集：限制内存使用为 16GB
-python generate_dataset.py -i data/large_dataset.fvecs -q 10000 -k 100 -o data/large --gpu --memory-limit 16.0
+# 大数据集：限制内存使用为 16GB，同时进行 GPU 内存可行性检查（24GB）
+python generate_dataset.py -i data/large -q 10000 -k 100 --gpu --memory-limit 16.0 --gpu-memory 24
 ```
 
-这将生成以下文件：
-- `data/sift_query.fvecs`: 包含 1000 个 query 向量
-- `data/sift_base.fvecs`: 包含剩余的 base 向量
-- `data/sift_groundtruth.ivecs`: 每个 query 的前 100 个最近邻索引
+这将生成以下文件（位于数据集目录下）：
+- `data/sift/sift_query.fvecs`: 包含 1000 个 query 向量
+- `data/sift/sift_base.fvecs`: 包含剩余的 base 向量
+- `data/sift/sift_groundtruth.ivecs`: 每个 query 的前 100 个最近邻索引
 
 #### 性能优化建议
 
@@ -337,6 +337,7 @@ python generate_dataset.py -i data/large_dataset.fvecs -q 10000 -k 100 -o data/l
      - 16GB GPU: 1000-2000
      - 24GB+ GPU: 2000+
 3. **内存管理**: 使用 `--memory-limit` 参数限制内存使用，避免系统内存不足
+4. **GPU 内存检查**: 使用 `--gpu-memory` 指定可用 GPU 内存大小，程序会给出是否可行的提示与分块建议
 
 #### 技术特点
 

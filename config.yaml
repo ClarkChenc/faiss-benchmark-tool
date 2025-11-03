@@ -2,7 +2,7 @@
 # 复制此文件为 config.yaml 并根据需要修改参数
 
 # 数据集名称 (sift, gist, deep1b 等)
-dataset: "sift"
+dataset: "StreamAnnRecallV13_1000w"
 
 # 返回的最近邻数量
 topk: 100
@@ -12,20 +12,20 @@ num_threads: 10
 
 # 索引类型配置
 index_types:
-  # 暴力搜索索引（精确搜索）
-  - index_type: "Flat"
-    params: {}
+  # # 暴力搜索索引（精确搜索）
+  # - index_type: "Flat"
+  #   params: {}
   
-  # IVF 索引（倒排文件索引）
-  - index_type: "IVF1024,Flat"
-    params:
-      nprobe: 16  # 搜索时探测的聚类数量，影响精度和速度的平衡
+  # # IVF 索引（倒排文件索引）
+  # - index_type: "IVF1024,Flat"
+  #   params:
+  #     nprobe: 16  # 搜索时探测的聚类数量，影响精度和速度的平衡
   
   # HNSW 索引（分层导航小世界图）
   - index_type: "HNSW32,Flat"
     params:
-      efConstruction: 40  # 构建时的搜索宽度，影响索引质量和构建时间
-      efSearch: 16        # 搜索时的搜索宽度，影响精度和搜索速度
+      efConstruction: 200  # 构建时的搜索宽度，影响索引质量和构建时间
+      efSearch: 100        # 搜索时的搜索宽度，影响精度和搜索速度
 
 # 参数说明：
 # 

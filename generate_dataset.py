@@ -361,26 +361,30 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例用法:
-  # CPU 模式
-  python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift
-  
+  # CPU 模式（输入为数据集目录路径，目录名即数据集名）
+  python generate_dataset.py -i data/sift -q 1000 -k 100
+
+  # GPU 模式，自动选择批处理大小
+  python generate_dataset.py -i data/sift -q 1000 -k 100 --gpu
+
   # GPU 模式，自定义批处理大小
-  python generate_dataset.py -i data/sift.fvecs -q 1000 -k 100 -o data/sift --gpu --batch-size 500
-  
-  # GPU 模式，指定 GPU 内存大小（用于内存检查）
-  python generate_dataset.py -i data/large.fvecs -q 1000 -k 100 -o data/large --gpu --gpu-memory 24
-  
-  这将会生成:
-  - data/sift_query.fvecs (1000 个 query 向量)
-  - data/sift_base.fvecs (剩余的 base 向量)
-  - data/sift_groundtruth.ivecs (每个 query 的前 100 个最近邻)
-  
-  注意: 使用 --gpu 模式时，程序会自动检查 GPU 内存是否足够，
-        如果内存不足会显示警告和分块建议。
+  python generate_dataset.py -i data/sift -q 1000 -k 100 --gpu --batch-size 500
+
+  # GPU 模式，指定 GPU 内存大小（用于可行性检查与分块建议）
+  python generate_dataset.py -i data/large -q 1000 -k 100 --gpu --gpu-memory 24
+
+  这将会在数据集目录下生成:
+  - data/sift/sift_query.fvecs (1000 个 query 向量)
+  - data/sift/sift_base.fvecs (剩余的 base 向量)
+  - data/sift/sift_groundtruth.ivecs (每个 query 的前 100 个最近邻)
+
+  注意:
+  - 输入参数 -i/--input 需要提供数据集目录路径，目录下需包含同名 .fvecs 文件，例如 data/sift/sift.fvecs。
+  - 使用 --gpu 时，会进行 GPU 内存可行性检查；若不足将提示分块建议。
         """,
     )
 
-    parser.add_argument("-i", "--input", required=True, help="输入的 .fvecs 文件路径")
+    parser.add_argument("-i", "--input", required=True, help="输入的数据集目录路径")
     parser.add_argument(
         "-q", "--queries", type=int, required=True, help="query 集合的向量数量"
     )
@@ -390,9 +394,6 @@ def main():
         type=int,
         default=100,
         help="每个 query 的最近邻数量 (默认: 100)",
-    )
-    parser.add_argument(
-        "-o", "--output", required=True, help="输出文件前缀 (不含扩展名)"
     )
     parser.add_argument(
         "--gpu", action="store_true", help="使用 GPU 加速 groundtruth 生成"
@@ -414,20 +415,27 @@ def main():
     )
 
     args = parser.parse_args()
-
+    
+    data_base_dir = args.input
+    if not os.path.exists(data_base_dir):
+        print(f"错误: 数据目录 {data_base_dir} 不存在")
+        return 1
+    data_name = os.path.basename(data_base_dir)
+    
     # 检查输入文件是否存在
-    if not os.path.exists(args.input):
-        print(f"错误: 输入文件 {args.input} 不存在")
+    input_file = os.path.join(data_base_dir, f"{data_name}.fvecs")
+    if not os.path.exists(input_file):
+        print(f"错误: 输入数据 {input_file} 不存在")
         return 1
 
     # 检查输入文件扩展名
-    if not args.input.endswith(".fvecs"):
+    if not input_file.endswith(".fvecs"):
         print(f"错误: 输入文件必须是 .fvecs 格式")
         return 1
 
     try:
         # 获取数据集信息（不加载数据）
-        total_vectors, dimension = get_fvecs_info(args.input)
+        total_vectors, dimension = get_fvecs_info(input_file)
         num_base = total_vectors - args.queries
         
         print(f"\n数据集信息:")
@@ -437,8 +445,9 @@ def main():
         print(f"  Base 向量数: {num_base}")
 
         # 分割数据集（流式处理，内存友好）
+        output_prefix = os.path.join(data_base_dir, data_name)
         query_sample, base_sample = split_dataset(
-            args.input, args.queries, args.output
+            input_file, args.queries, output_prefix
         )
 
         # 估算内存使用（基于实际数据量）
@@ -467,14 +476,14 @@ def main():
 
         # 清理样本数据，释放内存
         del query_sample, base_sample
-
+        
         # 创建索引（使用流式加载）
-        base_file = f"{args.output}_base.fvecs"
+        base_file = f"{output_prefix}_base.fvecs"
         index = create_index(base_file, args.gpu, gpu_memory_gb=args.gpu_memory)
 
         # 生成 groundtruth（使用流式加载 query 向量）
-        query_file = f"{args.output}_query.fvecs"
-        groundtruth_file = f"{args.output}_groundtruth.ivecs"
+        query_file = f"{output_prefix}_query.fvecs"
+        groundtruth_file = f"{output_prefix}_groundtruth.ivecs"
         
         print(f"\n正在生成 groundtruth...")
         
