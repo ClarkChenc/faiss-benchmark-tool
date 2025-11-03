@@ -32,6 +32,14 @@ def split_params(params, index_type):
         # nlist is a build-time param if provided explicitly (index_type may already encode it)
         if "nlist" in params:
             build_params["nlist"] = params["nlist"]
+    if "CAGRA" in index_type.upper():
+        # CAGRA graph construction params (GPU-only index build)
+        if "graph_degree" in params:
+            build_params["graph_degree"] = params["graph_degree"]
+        if "intermediate_graph_degree" in params:
+            build_params["intermediate_graph_degree"] = params["intermediate_graph_degree"]
+        if "metric" in params:
+            build_params["metric"] = params["metric"]
 
     # Any other keys not explicitly recognized default to search params,
     # except for 'use_gpu' which is handled separately

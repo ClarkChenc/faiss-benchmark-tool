@@ -122,7 +122,12 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None):
     while processed < n_queries:
         bs = min(mb_size, n_queries - processed)
         t0 = time.time()
-        D, I = index.search(xq[processed:processed + bs], topk)
+        # Prefer adapter method that can accept search params when available
+        batch_queries = xq[processed:processed + bs]
+        if hasattr(index, "search_with_params"):
+            D, I = index.search_with_params(batch_queries, topk, params)
+        else:
+            D, I = index.search(batch_queries, topk)
         elapsed = time.time() - t0
         total_search_time += elapsed
 

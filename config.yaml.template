@@ -48,6 +48,30 @@ index_types:
     search_param:
       efSearch: 16        # 搜索时的搜索宽度，影响精度和搜索速度
 
+  # CAGRA 索引（GPU 图索引，使用 cuVS）
+  - index_type: "CAGRA"
+    use_gpu: true           # CAGRA 为 GPU-only；需安装 RAPIDS/cuVS
+    index_param:
+      graph_degree: 32
+      intermediate_graph_degree: 64
+      metric: L2            # 也可使用 IP
+    search_param:
+      search_width: 4
+      itopk_size: 64
+      refine_ratio: 1.0
+
+  # CAGRA 构建后转换为 CPU HNSW（便于 CPU 检索与缓存）
+  # 语法："CAGRA->HNSW32,Flat"，会在 add() 后转换到 HNSW CPU 索引
+  - index_type: "CAGRA->HNSW32,Flat"
+    use_gpu: true           # 构建发生在 GPU；搜索在 CPU HNSW
+    index_param:
+      graph_degree: 32
+      intermediate_graph_degree: 64
+      metric: L2
+    search_param:
+      # HNSW 搜索参数仍然由通用逻辑控制（efSearch 可在此传入）
+      efSearch: 16
+
 # 参数说明：
 # 
 # 批处理参数：

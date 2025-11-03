@@ -1,4 +1,5 @@
 import faiss
+from .cagra_adapter import CagraIndexAdapter
 
 def create_index(index_type: str, dimension: int, use_gpu: bool = False, params: dict = None):
     """Creates a Faiss index with build-time params, moves it to GPU if requested.
@@ -11,6 +12,22 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
         # 确保 dimension 是标准 Python int 类型
         dimension = int(dimension)
         
+        # Route to CAGRA adapter when requested
+        if "CAGRA" in index_type.upper():
+            # Support optional conversion syntax: "CAGRA->HNSW32,Flat"
+            convert_to_hnsw = None
+            if "->" in index_type:
+                try:
+                    _, convert_to_hnsw = index_type.split("->", 1)
+                    convert_to_hnsw = convert_to_hnsw.strip()
+                except Exception:
+                    convert_to_hnsw = None
+
+            # Build-time params for CAGRA are passed into adapter; GPU is implied
+            index_params = params or {}
+            adapter = CagraIndexAdapter(dimension=dimension, build_params=index_params, convert_to_hnsw=convert_to_hnsw)
+            return adapter
+
         index = faiss.index_factory(dimension, index_type)
 
         index_params = params or {}
