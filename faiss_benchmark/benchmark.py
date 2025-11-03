@@ -85,22 +85,62 @@ def build_index_batch(index, dataset_info, batch_config):
     return {"train_time": train_time, "add_time": add_time}
 
 def search_index(index, xq, gt, topk=10, params=None):
-    """Searches the index and returns performance metrics."""
+    """Searches the index and returns performance metrics.
+
+    In addition to total search time, computes per-query latency metrics (avg, p99).
+    Latency is measured using micro-batches to avoid excessive overhead on large query sets.
+    """
     if params and "efSearch" in params:
         try:
             index.hnsw.efSearch = params["efSearch"]
         except AttributeError:
             pass  # Not an HNSW index
 
-    t0 = time.time()
-    D, I = index.search(xq, topk)
-    search_time = time.time() - t0
+    # Micro-batch size for latency measurement (default: 32)
+    latency_batch_size = 32
+    if params and isinstance(params, dict):
+        latency_batch_size = int(params.get("latency_batch_size", latency_batch_size))
 
+    n_queries = xq.shape[0]
+    I_all = np.empty((n_queries, topk), dtype=gt.dtype)
+    latencies = []
+
+    total_search_time = 0.0
+    processed = 0
+
+    # Perform search in micro-batches, recording per-query latency
+    while processed < n_queries:
+        bs = min(latency_batch_size, n_queries - processed)
+        t0 = time.time()
+        D, I = index.search(xq[processed:processed + bs], topk)
+        elapsed = time.time() - t0
+        total_search_time += elapsed
+
+        # Store results
+        I_all[processed:processed + bs, :] = I
+
+        # Approximate per-query latency by dividing batch time evenly
+        per_query_latency = elapsed / bs
+        latencies.extend([per_query_latency] * bs)
+
+        processed += bs
+
+    # Compute recall
     n_ok = 0
-    for i in range(xq.shape[0]):
-        n_ok += len(np.intersect1d(I[i, :topk], gt[i, :topk]))
-    
-    recall = n_ok / (len(xq) * topk)
-    qps = len(xq) / search_time
+    for i in range(n_queries):
+        n_ok += len(np.intersect1d(I_all[i, :topk], gt[i, :topk]))
+    recall = n_ok / (n_queries * topk)
 
-    return {"search_time": search_time, "qps": qps, "recall": recall}
+    # Throughput and latency metrics
+    qps = n_queries / total_search_time if total_search_time > 0 else 0.0
+    latencies_ms = np.array(latencies, dtype=np.float64) * 1000.0
+    latency_avg_ms = float(latencies_ms.mean()) if latencies_ms.size > 0 else 0.0
+    latency_p99_ms = float(np.percentile(latencies_ms, 99)) if latencies_ms.size > 0 else 0.0
+
+    return {
+        "search_time": total_search_time,
+        "qps": qps,
+        "recall": recall,
+        "latency_avg_ms": latency_avg_ms,
+        "latency_p99_ms": latency_p99_ms,
+    }
