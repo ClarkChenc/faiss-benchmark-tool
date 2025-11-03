@@ -7,6 +7,9 @@ dataset: "sift"
 # 返回的最近邻数量
 topk: 100
 
+# 延迟统计的微批大小（用于计算 avg/p99 延迟），默认 32
+latency_batch_size: 32
+
 # 线程数
 num_threads: 10
 
@@ -58,6 +61,7 @@ index_types:
 #
 # 通用参数：
 # - use_gpu: 是否为此索引使用 GPU (true / false)
+# - latency_batch_size: 全局延迟统计的微批大小（不在每个索引下配置）
 #
 # IVF 参数：
 # - nprobe: 搜索时探测的聚类数量

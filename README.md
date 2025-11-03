@@ -73,6 +73,7 @@ cp config.yaml.template config.yaml
 
 - **`dataset`**: 数据集名称，对应 `data/` 目录下的数据集文件前缀。
 - **`topk`**: 搜索时返回的最近邻居数量。
+- **`latency_batch_size`**: 延迟统计的微批大小（用于计算 avg/p99 延迟），默认 32。
 - **`num_threads`**: Faiss 使用的 CPU 线程数。
 - **`batch_processing`**: 批处理配置，用于内存优化：
   - **`enabled`**: 是否启用批处理模式 (`true` / `false`)。
@@ -87,7 +88,7 @@ cp config.yaml.template config.yaml
 
 ### 索引参数分类
 
-参数分为两类，分别在构建阶段与搜索阶段生效：
+参数分为两类，分别在构建阶段与搜索阶段生效（另有全局统计配置）：
 
 - 构建参数（`index_param`）：影响索引结构与缓存键
   - HNSW：`efConstruction`
@@ -95,12 +96,16 @@ cp config.yaml.template config.yaml
 - 搜索参数（`search_param`）：影响查询行为，不参与缓存键
   - HNSW：`efSearch`
   - IVF：`nprobe`
-  - 通用：`latency_batch_size`（用于延迟统计的微批大小）
+  - （无）
+
+全局统计配置：
+- `latency_batch_size`：用于延迟统计的微批大小（越大近似越粗但吞吐更稳定），默认 32
 
 示例配置：
 ```yaml
 dataset: "sift"
 topk: 10
+latency_batch_size: 32
 num_threads: 4
 
 index_types:
@@ -223,7 +228,7 @@ batch_processing:
 
 ## 输出结果
 
-基准测试将输出以下指标：
+基准测试将输出以下指标（延迟采用微批近似，由全局 `latency_batch_size` 控制）：
 
 - **Training time**: 索引训练时间
 - **Adding time**: 向量添加时间

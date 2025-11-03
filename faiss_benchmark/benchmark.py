@@ -84,11 +84,13 @@ def build_index_batch(index, dataset_info, batch_config):
     
     return {"train_time": train_time, "add_time": add_time}
 
-def search_index(index, xq, gt, topk=10, params=None):
+def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None):
     """Searches the index and returns performance metrics.
 
     In addition to total search time, computes per-query latency metrics (avg, p99).
     Latency is measured using micro-batches to avoid excessive overhead on large query sets.
+    The micro-batch size is controlled by global `latency_batch_size` (config-level),
+    and falls back to a legacy per-index param if provided.
     """
     if params:
         # Apply search-time params
@@ -104,9 +106,10 @@ def search_index(index, xq, gt, topk=10, params=None):
                 pass
 
     # Micro-batch size for latency measurement (default: 32)
-    latency_batch_size = 32
-    if params and isinstance(params, dict):
-        latency_batch_size = int(params.get("latency_batch_size", latency_batch_size))
+    mb_size = 32 if latency_batch_size is None else int(latency_batch_size)
+    # Backward-compat: if not provided globally, allow legacy param lookup
+    if latency_batch_size is None and params and isinstance(params, dict):
+        mb_size = int(params.get("latency_batch_size", mb_size))
 
     n_queries = xq.shape[0]
     I_all = np.empty((n_queries, topk), dtype=gt.dtype)
@@ -117,7 +120,7 @@ def search_index(index, xq, gt, topk=10, params=None):
 
     # Perform search in micro-batches, recording per-query latency
     while processed < n_queries:
-        bs = min(latency_batch_size, n_queries - processed)
+        bs = min(mb_size, n_queries - processed)
         t0 = time.time()
         D, I = index.search(xq[processed:processed + bs], topk)
         elapsed = time.time() - t0

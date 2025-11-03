@@ -20,8 +20,8 @@ def split_params(params, index_type):
     build_params = {}
     search_params = {}
 
-    # Common search-time params
-    search_keys = {"efSearch", "nprobe", "latency_batch_size"}
+    # Common search-time params (latency_batch_size moved to global config)
+    search_keys = {"efSearch", "nprobe"}
 
     # Build-time params by index type
     if "HNSW" in index_type:
@@ -63,6 +63,8 @@ def main():
     dataset_name = config["dataset"]
     index_types = config["index_types"]
     topk = config.get("topk", 10)
+    # Global latency micro-batch size for per-query latency measurement (default 32)
+    global_latency_bs = int(config.get("latency_batch_size", 32))
     
     # 获取批处理配置
     batch_config = config.get("batch_processing", {"enabled": False})
@@ -157,8 +159,8 @@ def main():
                     with open(meta_path, 'w') as f:
                         json.dump(build_results, f)
 
-            # Apply search-time params during search (e.g., nprobe, efSearch, latency_batch_size)
-            search_results = search_index(index, xq, gt, topk=topk, params=search_params)
+            # Apply search-time params during search (e.g., nprobe, efSearch). Latency micro-batch size from global config.
+            search_results = search_index(index, xq, gt, topk=topk, params=search_params, latency_batch_size=global_latency_bs)
             results = {**build_results, **search_results}
             print_results(index_type, results, topk=topk)
 
