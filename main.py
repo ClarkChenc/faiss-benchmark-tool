@@ -9,6 +9,45 @@ from faiss_benchmark.benchmark import build_index, build_index_batch, search_ind
 from faiss_benchmark.results import print_results
 from faiss_benchmark.utils import load_config
 
+
+def split_params(params, index_type):
+    """Split index params into build-time and search-time params.
+
+    - Build params affect index structure and should be part of cache key.
+    - Search params affect query behavior and should NOT change cache key.
+    """
+    params = params or {}
+    build_params = {}
+    search_params = {}
+
+    # Common search-time params
+    search_keys = {"efSearch", "nprobe", "latency_batch_size"}
+
+    # Build-time params by index type
+    if "HNSW" in index_type:
+        # HNSW build param controls graph construction breadth
+        if "efConstruction" in params:
+            build_params["efConstruction"] = params["efConstruction"]
+    if "IVF" in index_type:
+        # nlist is a build-time param if provided explicitly (index_type may already encode it)
+        if "nlist" in params:
+            build_params["nlist"] = params["nlist"]
+
+    # Any other keys not explicitly recognized default to search params,
+    # except for 'use_gpu' which is handled separately
+    for k, v in params.items():
+        if k == "use_gpu":
+            continue
+        elif k in build_params:
+            continue
+        elif k in search_keys:
+            search_params[k] = v
+        else:
+            # Default unknown params to search-time to avoid cache churn
+            search_params[k] = v
+
+    return build_params, search_params
+
 def main():
     parser = argparse.ArgumentParser(description="Faiss Benchmark Tool")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
@@ -67,16 +106,30 @@ def main():
 
     for index_config in index_types:
         index_type = index_config["index_type"]
-        params = index_config.get("params", {})
-        use_gpu = params.get("use_gpu", False)
-        
-        param_str = "_".join([f"{k}{v}" for k, v in params.items() if k != 'use_gpu'])
+        # New schema: explicit index/search params
+        explicit_build = index_config.get("index_param") or {}
+        explicit_search = index_config.get("search_param") or {}
+        # Backward-compat: legacy 'params'
+        legacy_params = index_config.get("params", {})
+
+        # Determine use_gpu (prefer top-level, then index_param, then legacy params)
+        use_gpu = bool(index_config.get("use_gpu", explicit_build.get("use_gpu", legacy_params.get("use_gpu", False))))
+
+        # If explicit provided, use them; otherwise split legacy
+        if explicit_build or explicit_search:
+            build_params = {k: v for k, v in explicit_build.items() if k != "use_gpu"}
+            search_params = explicit_search
+        else:
+            build_params, search_params = split_params(legacy_params, index_type)
+
+        build_param_str = "_".join([f"{k}{v}" for k, v in build_params.items()])
         gpu_str = "_gpu" if use_gpu else ""
-        cache_filename = f"{dataset_name}_{index_type}_{param_str}{gpu_str}.index"
+        cache_filename = f"{dataset_name}_{index_type}_{build_param_str}{gpu_str}.index"
         cache_path = os.path.join(cache_dir, cache_filename)
         meta_path = os.path.join(cache_dir, cache_filename.replace('.index', '_meta.json'))
 
-        print(f"\nTesting index: {index_type} with params: {params}")
+        # Show effective params after split
+        print(f"\nTesting index: {index_type} | build_param={build_params} | search_param={search_params} | use_gpu={use_gpu}")
 
         try:
             if not use_gpu and os.path.exists(cache_path) and os.path.exists(meta_path):
@@ -89,7 +142,8 @@ def main():
                 if use_gpu:
                     print("GPU mode is enabled. Index will be rebuilt and not cached.")
                 print("Building new index...")
-                index = create_index(index_type, dimension, use_gpu=use_gpu, params=params)
+                # Create index using ONLY build-time params to avoid search-param cache churn
+                index = create_index(index_type, dimension, use_gpu=use_gpu, params=build_params)
                 
                 # 根据是否使用批处理选择构建方法
                 if use_batch_processing:
@@ -103,7 +157,8 @@ def main():
                     with open(meta_path, 'w') as f:
                         json.dump(build_results, f)
 
-            search_results = search_index(index, xq, gt, topk=topk, params=params)
+            # Apply search-time params during search (e.g., nprobe, efSearch, latency_batch_size)
+            search_results = search_index(index, xq, gt, topk=topk, params=search_params)
             results = {**build_results, **search_results}
             print_results(index_type, results, topk=topk)
 

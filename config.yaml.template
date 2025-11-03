@@ -20,22 +20,29 @@ batch_processing:
 index_types:
   # 暴力搜索索引（精确搜索）
   - index_type: "Flat"
-    params: {}
+    # 显式区分构建参数与搜索参数（可选）
+    index_param: {}
+    search_param: {}
 
   # GPU 上的暴力搜索
   - index_type: "Flat"
-    params:
-      use_gpu: true
+    use_gpu: true
+    index_param: {}
+    search_param: {}
   
   # IVF 索引（倒排文件索引）
   - index_type: "IVF1024,Flat"
-    params:
+    index_param:
+      # 可选：覆盖 nlist（通常由 index_type 指定）
+      # nlist: 1024
+    search_param:
       nprobe: 16  # 搜索时探测的聚类数量，影响精度和速度的平衡
   
   # HNSW 索引（分层导航小世界图）
   - index_type: "HNSW32,Flat"
-    params:
+    index_param:
       efConstruction: 40  # 构建时的搜索宽度，影响索引质量和构建时间
+    search_param:
       efSearch: 16        # 搜索时的搜索宽度，影响精度和搜索速度
 
 # 参数说明：

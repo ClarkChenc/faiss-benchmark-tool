@@ -90,11 +90,18 @@ def search_index(index, xq, gt, topk=10, params=None):
     In addition to total search time, computes per-query latency metrics (avg, p99).
     Latency is measured using micro-batches to avoid excessive overhead on large query sets.
     """
-    if params and "efSearch" in params:
-        try:
-            index.hnsw.efSearch = params["efSearch"]
-        except AttributeError:
-            pass  # Not an HNSW index
+    if params:
+        # Apply search-time params
+        if "efSearch" in params:
+            try:
+                index.hnsw.efSearch = params["efSearch"]
+            except AttributeError:
+                pass  # Not an HNSW index
+        if "nprobe" in params:
+            try:
+                faiss.ParameterSpace().set_index_parameter(index, "nprobe", int(params["nprobe"]))
+            except Exception:
+                pass
 
     # Micro-batch size for latency measurement (default: 32)
     latency_batch_size = 32

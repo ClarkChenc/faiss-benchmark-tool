@@ -80,32 +80,24 @@ cp config.yaml.template config.yaml
   - **`train_batch_size`**: 训练时使用的批大小。
 - **`index_types`**: 一个包含多个索引配置的列表，每个配置包含：
   - **`index_type`**: Faiss 索引的类型，例如 `"Flat"`, `"IVF1024,Flat"`, `"HNSW32,Flat"`。
-  - **`params`**: 一个包含索引特定参数的字典，例如 `nprobe` (IVF)、`efSearch` (HNSW) 或 `use_gpu`。
+  - **`use_gpu`**: 是否为该索引使用 GPU（可选，优先于 `index_param` 中的同名字段）。
+  - **`index_param`**: 构建阶段参数，只影响索引结构；参与缓存键（例如 HNSW 的 `efConstruction`、IVF 的 `nlist`）。
+  - **`search_param`**: 搜索阶段参数，仅影响查询行为；不参与缓存键（例如 HNSW 的 `efSearch`、IVF 的 `nprobe`、通用的 `latency_batch_size`）。
+  - 兼容说明：仍然支持旧的 **`params`** 字段，程序会自动拆分为上述两类参数。
 
-### 索引参数 (`params`)
+### 索引参数分类
 
-对于特定的索引类型，您可以提供额外的参数进行性能调优。目前支持以下参数：
+参数分为两类，分别在构建阶段与搜索阶段生效：
 
-- **`use_gpu`** (通用参数):
-  - **作用**: 指定是否为该特定索引使用 GPU 加速。
-  - **取值**: `true` 或 `false`。
+- 构建参数（`index_param`）：影响索引结构与缓存键
+  - HNSW：`efConstruction`
+  - IVF：`nlist`（如需覆盖；通常由 `index_type` 指定）
+- 搜索参数（`search_param`）：影响查询行为，不参与缓存键
+  - HNSW：`efSearch`
+  - IVF：`nprobe`
+  - 通用：`latency_batch_size`（用于延迟统计的微批大小）
 
-- **`nprobe`** (适用于 `IVF` 系列索引):
-  - **作用**: 设置搜索时要访问的聚类中心的数量。这是在搜索速度和召回率之间进行权衡的关键参数。
-  - **取值**: `1` 到 `nlist` (例如，对于 `IVF1024`,Flat，最大为 `1024`)。
-  - **建议**: 
-    - `nprobe=1`: 速度最快，召回率最低。
-    - `nprobe=16` 或 `nprobe=32`: 在速度和召回率之间取得较好的平衡。
-    - `nprobe` 值越大，召回率越高，但搜索速度越慢。
-
-- **`efConstruction`** (适用于 `HNSW` 索引):
-  - **作用**: 在索引构建时，控制图的质量。值越高，图质量越好，搜索精度越高，但构建时间越长。
-  - **建议**: 通常设置为 `40`。
-
-- **`efSearch`** (适用于 `HNSW` 索引):
-  - **作用**: 在搜索时，控制搜索的广度。值越高，搜索越精确，召回率越高，但搜索时间越长。
-  - **建议**: 通常设置为 `16`。
-
+示例配置：
 ```yaml
 dataset: "sift"
 topk: 10
@@ -113,22 +105,26 @@ num_threads: 4
 
 index_types:
   - index_type: "Flat"
-    params: {}
+    index_param: {}
+    search_param: {}
 
   - index_type: "IVF1024,Flat"
-    params:
-      nprobe: 16  # 设置 nprobe 为 16
+    use_gpu: true
+    index_param: {}
+    search_param:
+      nprobe: 16
 
   - index_type: "HNSW32,Flat"
-    params:
+    index_param:
       efConstruction: 40
+    search_param:
       efSearch: 16
 ```
 
 - `dataset`: 要加载的数据集名称（不含扩展名）。程序会自动在 `data/` 目录下查找 `{dataset_name}_base.fvecs`、`{dataset_name}_query.fvecs` 和 `{dataset_name}_groundtruth.ivecs`。
 - `topk`: 指定在搜索时返回的最近邻结果数量。这个值会影响召回率的计算（例如 `Recall@10`）。
 - `num_threads`: 指定 Faiss 在 CPU 上进行计算时可以使用的线程数。这对于在多核 CPU 上加速索引构建和搜索非常有用。
-- `index_types`: 一个包含要测试的 Faiss 索引字符串的列表。
+- `index_types`: 一个包含要测试的 Faiss 索引配置的列表，支持每个索引分别设置 GPU 与参数。
 
 ### 支持的索引类型
 
@@ -149,8 +145,14 @@ python main.py
 
 ### 使用 GPU 加速
 
-```bash
-python main.py --gpu
+在 `config.yaml` 中为指定的索引条目设置 `use_gpu: true`：
+
+```yaml
+index_types:
+  - index_type: "Flat"
+    use_gpu: true
+    index_param: {}
+    search_param: {}
 ```
 
 ### 指定配置文件
@@ -205,13 +207,19 @@ batch_processing:
 
 ## 索引缓存
 
-为了提高效率，该工具实现了一个索引缓存机制。当您第一次使用特定的数据集、索引类型和参数组合运行基准测试时，构建好的索引将被自动保存到 `index_cache` 目录中。
+为了提高效率，该工具实现了一个索引缓存机制：当您第一次使用特定的数据集、索引类型和“构建参数”组合运行基准测试时，构建好的索引将被自动保存到 `index_cache` 目录中。
 
-在后续的运行中，如果检测到匹配的缓存文件，程序将直接加载该索引，从而跳过耗时的训练和向量添加过程。这对于大型数据集和复杂的索引（如 HNSW）尤其有用。
+在后续运行中，如果检测到匹配的缓存文件，程序将直接加载该索引，从而跳过耗时的训练与向量添加过程。
 
-缓存文件名根据以下模式生成：`{dataset}_{index_type}_{params}.index`。
+缓存文件名模式：
 
-如果您想强制重新构建索引，只需删除 `index_cache` 目录中对应的索引文件即可。
+- `dataset_indexType_buildParamStr.index`（CPU 模式）
+- `dataset_indexType_buildParamStr_gpu.index`（GPU 标识会出现在文件名中，但默认不缓存 GPU 模式，见下）
+
+缓存策略：
+- 仅“构建参数”（`index_param`）与 GPU 标志参与缓存键；“搜索参数”（`search_param`）不改变缓存键，可复用索引。
+- GPU 模式索引不缓存（避免跨设备兼容问题），每次都重新构建。
+- 若要强制重建索引，删除 `index_cache/` 目录下对应文件即可。
 
 ## 输出结果
 
@@ -221,6 +229,8 @@ batch_processing:
 - **Adding time**: 向量添加时间
 - **Search time**: 搜索时间
 - **QPS**: 每秒查询数
+- **Latency avg (ms)**: 单查询平均延迟（毫秒）
+- **Latency p99 (ms)**: 单查询 p99 延迟（毫秒）
 - **Recall@10**: 前10个结果的召回率
 
 ## 自定义
