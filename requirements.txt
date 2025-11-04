@@ -1,3 +1,4 @@
 faiss-gpu
 numpy
 PyYAML
+tqdm

@@ -232,7 +232,8 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
         # 流式添加向量到索引
         print(f"正在流式添加 {total_vectors} 个向量到索引...")
         if use_gpu:
-            print(f"🔧 启用动态批处理大小调整（GPU 内存: {gpu_memory_gb}GB）")
+            # 取消动态批大小调整，始终使用用户提供的 batch_size
+            print(f"使用固定批处理大小（GPU 模式）：{chunk_size}")
         
         current_idx = 0
         remaining = total_vectors
@@ -240,22 +241,8 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
         
         with tqdm(total=total_vectors, desc="添加向量") as pbar:
             while remaining > 0:
-                # 如果使用 GPU，动态调整批处理大小
-                if use_gpu:
-                    dynamic_batch_size = calculate_dynamic_batch_size(
-                        current_idx, total_vectors, dimension, gpu_memory_gb, chunk_size
-                    )
-                    batch_size = min(dynamic_batch_size, remaining)
-                    
-                    # 每 10 个批次显示一次批大小调整信息
-                    if batch_count % 10 == 0 and batch_count > 0:
-                        current_memory_gb = (current_idx * dimension * 4 * 2.2) / (1024**3)
-                        pbar.set_postfix({
-                            'batch_size': f'{batch_size:,}',
-                            'index_mem': f'{current_memory_gb:.1f}GB'
-                        })
-                else:
-                    batch_size = min(chunk_size, remaining)
+                # 取消动态批次调整，始终使用配置的 chunk_size
+                batch_size = min(chunk_size, remaining)
                 
                 vectors = fvecs_read_range(base_file, current_idx, batch_size)
                 
