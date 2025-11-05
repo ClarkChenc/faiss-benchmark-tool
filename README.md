@@ -258,12 +258,14 @@ batch_processing:
 
 在 `config.yaml` 的 `index_types` 列表中添加新的 Faiss 索引字符串。
 
-#### CAGRA（GPU，仅 cuVS）
+#### CAGRA（GPU，仅 cuVS；需要 CUDA 12）
 
 - 本项目支持通过适配器集成 NVIDIA cuVS 的 CAGRA 索引：
   - 使用方式一：`index_type: "CAGRA"`（GPU 构建与检索，需安装 cuVS/RAFT）
   - 使用方式二：`index_type: "CAGRA->HNSW32,Flat"`（GPU 构建后转换为 CPU HNSW，用于 CPU 检索与可选缓存）
-- 依赖与限制：
+- 依赖与限制（重要）：
+  - 环境必须支持 CUDA 12 运行时（例如可加载 `libcudart.so.12`）。
+  - 若检测到环境不支持 CUDA 12，将直接禁用 CAGRA 并抛出错误（请改用 HNSW/IVF 等索引）。
   - 需要可用的 CUDA GPU 与 cuVS Python 包（建议通过 RAPIDS/conda 安装）。
   - 在 macOS 或无 GPU 环境下将无法实际运行 CAGRA；适配器会抛出清晰错误信息。
 - 参数：
