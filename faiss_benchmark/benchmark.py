@@ -84,7 +84,7 @@ def build_index_batch(index, dataset_info, batch_config):
     
     return {"train_time": train_time, "add_time": add_time}
 
-def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None):
+def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, warmup_queries: int | None = None):
     """Searches the index and returns performance metrics.
 
     In addition to total search time, computes per-query latency metrics (avg, p99).
@@ -96,20 +96,40 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None):
         # Apply search-time params
         if "efSearch" in params:
             try:
-                index.hnsw.efSearch = params["efSearch"]
+                index.hnsw.efSearch = int(params["efSearch"])  # HNSW (CPU)
             except AttributeError:
                 pass  # Not an HNSW index
-        if "nprobe" in params:
+
+        # IVF nprobe setting: prefer direct attribute for GPU IVF, fallback to ParameterSpace
+        if "nprobe" in params and params["nprobe"] is not None:
+            nprobe_val = int(params["nprobe"])  # normalize
+
+            # Prefer setattr for GPU indices (and many CPU variants)
             try:
-                faiss.ParameterSpace().set_index_parameter(index, "nprobe", int(params["nprobe"]))
+                if hasattr(index, "nprobe"):
+                    setattr(index, "nprobe", nprobe_val)
             except Exception:
-                pass
+                print(f"Failed to set nprobe={nprobe_val} via setattr")            # Fallback to ParameterSpace when attribute not available
 
     # Micro-batch size for latency measurement (default: 32)
     mb_size = 32 if latency_batch_size is None else int(latency_batch_size)
     # Backward-compat: if not provided globally, allow legacy param lookup
     if latency_batch_size is None and params and isinstance(params, dict):
         mb_size = int(params.get("latency_batch_size", mb_size))
+
+    # Warm-up phase: run a number of queries to stabilize QPS/latency
+    warmup = int(warmup_queries or 0)
+    if warmup > 0:
+        w_processed = 0
+        w_total = min(warmup, xq.shape[0])
+        while w_processed < w_total:
+            w_bs = min(mb_size, w_total - w_processed)
+            batch_queries = xq[w_processed:w_processed + w_bs]
+            if hasattr(index, "search_with_params"):
+                _D, _I = index.search_with_params(batch_queries, topk, params)
+            else:
+                _D, _I = index.search(batch_queries, topk)
+            w_processed += w_bs
 
     n_queries = xq.shape[0]
     I_all = np.empty((n_queries, topk), dtype=gt.dtype)

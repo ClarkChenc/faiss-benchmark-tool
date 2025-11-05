@@ -11,6 +11,13 @@
    ```
 
 2. **安装依赖：**
+   
+   faiss-gpu: (支持 cuda11.4 及以上)
+   conda install -c conda-forge faiss-gpu
+   
+   faiss-gpu-cuvs: （需要保证支持 cuda12.0 及以上）
+   conda install -c pytorch -c nvidia -c rapidsai -c conda-forge libnvjitlink faiss-gpu-cuvs=1.12.0
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -74,6 +81,7 @@ cp config.yaml.template config.yaml
 - **`dataset`**: 数据集名称，对应 `data/` 目录下的数据集文件前缀。
 - **`topk`**: 搜索时返回的最近邻居数量。
 - **`latency_batch_size`**: 延迟统计的微批大小（用于计算 avg/p99 延迟），默认 32。
+- **`warmup_queries`**: 预热查询数量（在正式计时前先跑若干查询，以稳定 QPS/延迟），默认 0（关闭）。
 - **`num_threads`**: Faiss 使用的 CPU 线程数。
 - **`batch_processing`**: 批处理配置，用于内存优化：
   - **`enabled`**: 是否启用批处理模式 (`true` / `false`)。
@@ -106,6 +114,7 @@ cp config.yaml.template config.yaml
 dataset: "sift"
 topk: 10
 latency_batch_size: 32
+warmup_queries: 0
 num_threads: 4
 
 index_types:

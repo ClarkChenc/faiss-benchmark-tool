@@ -2,12 +2,6 @@ import argparse
 import yaml
 import os
 import json
-import faiss
-from faiss_benchmark.datasets import load_dataset, get_dataset_info
-from faiss_benchmark.indexes import create_index
-from faiss_benchmark.benchmark import build_index, build_index_batch, search_index
-from faiss_benchmark.results import print_results
-from faiss_benchmark.utils import load_config
 
 
 def split_params(params, index_type):
@@ -61,18 +55,52 @@ def main():
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     args = parser.parse_args()
 
-    # Load configuration
+    # Set thread env limits BEFORE importing Faiss/Numpy-backed libs
+    # Read minimal config for num_threads
+    num_threads_env = 1
+    try:
+        if os.path.exists(args.config):
+            with open(args.config, 'r', encoding='utf-8') as f:
+                cfg_preview = yaml.safe_load(f) or {}
+                num_threads_env = int(cfg_preview.get("num_threads", num_threads_env))
+    except Exception:
+        pass
+    os.environ.setdefault("OMP_NUM_THREADS", str(num_threads_env))
+    os.environ.setdefault("MKL_NUM_THREADS", str(num_threads_env))
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", str(num_threads_env))
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", str(num_threads_env))
+    os.environ.setdefault("VECLIB_MAXIMUM_THREADS", str(num_threads_env))
+    
+    os.environ.setdefault("MKL_DYNAMIC", "FALSE")
+    os.environ.setdefault("OPENBLAS_DYNAMIC", "0")
+    os.environ.setdefault("OMP_MAX_ACTIVE_LEVELS", "1")
+
+    # Import heavy libs after env setup so they honor thread limits
+    import faiss
+    from faiss_benchmark.datasets import load_dataset, get_dataset_info
+    from faiss_benchmark.indexes import create_index
+    from faiss_benchmark.benchmark import build_index, build_index_batch, search_index
+    from faiss_benchmark.results import print_results
+    from faiss_benchmark.utils import load_config
+
+    # Load full configuration
     config = load_config(args.config)
 
     # Set number of threads for Faiss
-    num_threads = config.get("num_threads", 1)
-    faiss.omp_set_num_threads(num_threads)
+    num_threads = int(config.get("num_threads", num_threads_env))
+    try:
+        faiss.omp_set_num_threads(num_threads)
+    except Exception as _thread_err:
+        print(f"Warning: failed to set Faiss threads: {_thread_err}")
+    print(f"Using {faiss.omp_get_max_threads()} threads for Faiss")
 
     dataset_name = config["dataset"]
     index_types = config["index_types"]
     topk = config.get("topk", 10)
     # Global latency micro-batch size for per-query latency measurement (default 32)
     global_latency_bs = int(config.get("latency_batch_size", 32))
+    # Global warmup queries to stabilize QPS/latency before timing
+    global_warmup = int(config.get("warmup_queries", 0))
     
     # 获取批处理配置
     batch_config = config.get("batch_processing", {"enabled": False})
@@ -168,7 +196,16 @@ def main():
                         json.dump(build_results, f)
 
             # Apply search-time params during search (e.g., nprobe, efSearch). Latency micro-batch size from global config.
-            search_results = search_index(index, xq, gt, topk=topk, params=search_params, latency_batch_size=global_latency_bs)
+            # Warm-up queries help stabilize QPS and latency before timing.
+            search_results = search_index(
+                index,
+                xq,
+                gt,
+                topk=topk,
+                params=search_params,
+                latency_batch_size=global_latency_bs,
+                warmup_queries=global_warmup,
+            )
             results = {**build_results, **search_results}
             print_results(index_type, results, topk=topk)
 
