@@ -162,15 +162,56 @@ def main():
 
         build_param_str = "_".join([f"{k}{v}" for k, v in build_params.items()])
         gpu_str = "_gpu" if use_gpu else ""
+        # 正常缓存文件（依据 use_gpu 决定是否带 _gpu 后缀）
         cache_filename = f"{dataset_name}_{index_type}_{build_param_str}{gpu_str}.index"
         cache_path = os.path.join(cache_dir, cache_filename)
         meta_path = os.path.join(cache_dir, cache_filename.replace('.index', '_meta.json'))
+        # 针对 CAGRA->HNSW 转换，始终以 CPU 形式缓存（不带 _gpu 后缀）
+        is_cagra = "CAGRA" in index_type.upper()
+        does_convert = ("->" in index_type)
+        cpu_cache_filename = f"{dataset_name}_{index_type}_{build_param_str}.index"
+        cpu_cache_path = os.path.join(cache_dir, cpu_cache_filename)
+        cpu_meta_path = os.path.join(cache_dir, cpu_cache_filename.replace('.index', '_meta.json'))
 
         # Show effective params after split
         print(f"\nTesting index: {index_type} | build_param={build_params} | search_param={search_params} | use_gpu={use_gpu}")
 
         try:
-            if not use_gpu and os.path.exists(cache_path) and os.path.exists(meta_path):
+            # 优先覆盖：如果是 CAGRA 转换且存在 CPU 缓存，则直接加载 CPU 索引
+            if is_cagra and does_convert and os.path.exists(cpu_cache_path) and os.path.exists(cpu_meta_path):
+                print(f"Loading converted CPU index from cache: {cpu_cache_path}")
+                cpu_index_loaded = faiss.read_index(cpu_cache_path)
+                with open(cpu_meta_path, 'r') as f:
+                    build_results = json.load(f)
+                # 清空历史 GPU 峰值内存指标，避免误导（当前运行直接使用 CPU 索引）
+                try:
+                    build_results['gpu_mem_peak_used_bytes'] = None
+                    build_results['gpu_mem_total_bytes'] = None
+                except Exception:
+                    pass
+                print(f"Using cached build times: train={build_results['train_time']:.3f}s, add={build_results['add_time']:.3f}s")
+                # 将 CPU 索引包裹在 CAGRA 适配器中，以便沿用适配器的检索与日志
+                try:
+                    from faiss_benchmark.cagra_adapter import CagraIndexAdapter
+                    convert_to_hnsw = None
+                    if "->" in index_type:
+                        try:
+                            _, convert_to_hnsw = index_type.split("->", 1)
+                            convert_to_hnsw = convert_to_hnsw.strip()
+                        except Exception:
+                            convert_to_hnsw = None
+                    adapter = CagraIndexAdapter(dimension=int(dimension), build_params=build_params, convert_to_hnsw=convert_to_hnsw)
+                    try:
+                        setattr(adapter, "_cpu_index", cpu_index_loaded)
+                        setattr(adapter, "_gpu_index", None)
+                    except Exception:
+                        pass
+                    index = adapter
+                    print("Using converted CPU index for search")
+                except Exception as e:
+                    index = cpu_index_loaded
+                    print(f"Warning: failed to wrap CPU index into adapter: {e}")
+            elif not use_gpu and os.path.exists(cache_path) and os.path.exists(meta_path):
                 print(f"Loading index from cache: {cache_path}")
                 index = faiss.read_index(cache_path)
                 with open(meta_path, 'r') as f:
@@ -189,11 +230,33 @@ def main():
                 else:
                     build_results = build_index(index, xb)
                 
-                if not use_gpu:
+                # 保存 CPU 索引缓存（普通 CPU 索引）
+                if not use_gpu and not (is_cagra and does_convert):
                     print(f"Saving index to cache: {cache_path}")
                     faiss.write_index(index, cache_path)
                     with open(meta_path, 'w') as f:
                         json.dump(build_results, f)
+
+                # 保存 CAGRA 转换后的 CPU 索引缓存（即使 use_gpu=true 也保存）
+                if is_cagra and does_convert:
+                    try:
+                        # 对于适配器，尝试获取转换后的 CPU 索引
+                        cpu_index = None
+                        if hasattr(index, 'get_cpu_index'):
+                            cpu_index = index.get_cpu_index()
+                        # 如果不是适配器（比如直接从缓存加载的 CPU 索引），则 cpu_index 为空，跳过保存
+                        if cpu_index is not None:
+                            print(f"Saving converted CPU index to cache: {cpu_cache_path}")
+                            faiss.write_index(cpu_index, cpu_cache_path)
+                            with open(cpu_meta_path, 'w') as f:
+                                json.dump(build_results, f)
+                            # 保留适配器对象用于检索（不要替换为原始 CPU 索引）
+                            try:
+                                print("Using converted CPU index for search")
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        print(f"Warning: failed to save converted CPU index: {e}")
 
             # Apply search-time params during search (e.g., nprobe, efSearch). Latency micro-batch size from global config.
             # Warm-up queries help stabilize QPS and latency before timing.
@@ -205,6 +268,8 @@ def main():
                 params=search_params,
                 latency_batch_size=global_latency_bs,
                 warmup_queries=global_warmup,
+                initial_gpu_peak_bytes=build_results.get("gpu_mem_peak_used_bytes"),
+                gpu_total_bytes=build_results.get("gpu_mem_total_bytes"),
             )
             results = {**build_results, **search_results}
             print_results(index_type, results, topk=topk)

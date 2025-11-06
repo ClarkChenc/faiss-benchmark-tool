@@ -2,6 +2,7 @@ import time
 import numpy as np
 import faiss
 from .datasets import load_base_vectors_batch
+from .gpu_mem import get_gpu_memory
 
 def build_index(index, xb):
     """Trains the index and adds vectors."""
@@ -12,8 +13,15 @@ def build_index(index, xb):
     t0 = time.time()
     index.add(xb)
     add_time = time.time() - t0
-
-    return {"train_time": train_time, "add_time": add_time}
+    mem_info = get_gpu_memory()
+    peak_used = mem_info["used_bytes"] if mem_info else None
+    total_bytes = mem_info["total_bytes"] if mem_info else None
+    return {
+        "train_time": train_time,
+        "add_time": add_time,
+        "gpu_mem_peak_used_bytes": peak_used,
+        "gpu_mem_total_bytes": total_bytes,
+    }
 
 def build_index_batch(index, dataset_info, batch_config):
     """使用分批处理构建索引"""
@@ -82,9 +90,17 @@ def build_index_batch(index, dataset_info, batch_config):
     add_time = time.time() - t0
     print(f"添加完成，耗时: {add_time:.3f}s")
     
-    return {"train_time": train_time, "add_time": add_time}
+    mem_info = get_gpu_memory()
+    peak_used = mem_info["used_bytes"] if mem_info else None
+    total_bytes = mem_info["total_bytes"] if mem_info else None
+    return {
+        "train_time": train_time,
+        "add_time": add_time,
+        "gpu_mem_peak_used_bytes": peak_used,
+        "gpu_mem_total_bytes": total_bytes,
+    }
 
-def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, warmup_queries: int | None = None):
+def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, warmup_queries: int | None = None, initial_gpu_peak_bytes=None, gpu_total_bytes=None):
     """Searches the index and returns performance metrics.
 
     In addition to total search time, computes per-query latency metrics (avg, p99).
@@ -136,6 +152,8 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     latencies = []
 
     total_search_time = 0.0
+    mem_info_before = get_gpu_memory()
+    before_used = mem_info_before["used_bytes"] if mem_info_before else None
     processed = 0
 
     # Perform search in micro-batches, recording per-query latency
@@ -171,6 +189,17 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     latencies_ms = np.array(latencies, dtype=np.float64) * 1000.0
     latency_avg_ms = float(latencies_ms.mean()) if latencies_ms.size > 0 else 0.0
     latency_p99_ms = float(np.percentile(latencies_ms, 99)) if latencies_ms.size > 0 else 0.0
+    mem_info_after = get_gpu_memory()
+    after_used = mem_info_after["used_bytes"] if mem_info_after else None
+    # Compute peak used across provided snapshots
+    candidates = [initial_gpu_peak_bytes, before_used, after_used]
+    peak_used = None
+    for c in candidates:
+        if c is None:
+            continue
+        peak_used = c if peak_used is None else max(peak_used, c)
+    # Prefer an available total bytes source
+    total_bytes = gpu_total_bytes or (mem_info_before["total_bytes"] if mem_info_before else (mem_info_after["total_bytes"] if mem_info_after else None))
 
     return {
         "search_time": total_search_time,
@@ -178,4 +207,6 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         "recall": recall,
         "latency_avg_ms": latency_avg_ms,
         "latency_p99_ms": latency_p99_ms,
+        "gpu_mem_peak_used_bytes": peak_used,
+        "gpu_mem_total_bytes": total_bytes,
     }

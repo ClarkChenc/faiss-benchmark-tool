@@ -65,18 +65,22 @@ class CagraIndexAdapter:
             if self._gpu_index is None or type(self._gpu_index).__name__ != 'GpuIndexCagra':
                 res = _faiss.StandardGpuResources()
                 self._gpu_index = _faiss.GpuIndexCagra(res, self.dimension, _metric_enum)
-                # Apply build-time params via ParameterSpace if supported
-                ps = _faiss.ParameterSpace()
+                # Apply build-time params via GPU ParameterSpace when available
                 try:
+                    PS = getattr(_faiss, "GpuParameterSpace", _faiss.ParameterSpace)
+                    ps = PS()
+                    param_pairs = []
                     if "graph_degree" in self.build_params:
-                        ps.set_index_parameter(self._gpu_index, "graph_degree", int(self.build_params["graph_degree"]))
-                except Exception as e:
-                    faiss_errors.append(f"set graph_degree failed: {e}")
-                try:
+                        param_pairs.append(f"graph_degree={int(self.build_params['graph_degree'])}")
                     if "intermediate_graph_degree" in self.build_params:
-                        ps.set_index_parameter(self._gpu_index, "intermediate_graph_degree", int(self.build_params["intermediate_graph_degree"]))
+                        param_pairs.append(
+                            f"intermediate_graph_degree={int(self.build_params['intermediate_graph_degree'])}"
+                        )
+                    if param_pairs:
+                        ps.set_index_parameters(self._gpu_index, ",".join(param_pairs))
+                        print(f"[CAGRA] Applied build params: {','.join(param_pairs)}")
                 except Exception as e:
-                    faiss_errors.append(f"set intermediate_graph_degree failed: {e}")
+                    faiss_errors.append(f"apply build params failed: {e}")
 
             # Add vectors (build happens internally, supports incremental add)
             self._gpu_index.add(xb)
@@ -160,7 +164,7 @@ class CagraIndexAdapter:
             except Exception as e:
                 raise RuntimeError(f"Failed to build CAGRA GPU index (Faiss + cuVS fallback failed): {e}")
 
-        # Optional conversion to CPU HNSW (incremental-friendly)
+        # Optional conversion to CPU index via Faiss CAGRA->HNSW copy
         if self.convert_to_hnsw:
             try:
                 import faiss as _faiss
@@ -178,15 +182,58 @@ class CagraIndexAdapter:
             except Exception:
                 M = 32
 
-            # Create or reuse CPU HNSW index and add incrementally
+            # Prefer exact CPU CAGRA-compatible index and copy GPU graph to it
             try:
                 if self._cpu_index is None:
-                    hnsw_index = _faiss.IndexHNSWFlat(self.dimension, M)
-                    hnsw_index.hnsw.efConstruction = int(self.build_params.get("efConstruction", 40))
-                    self._cpu_index = hnsw_index
-                self._cpu_index.add(xb)
+                    cpu_index = None
+                    # Try Faiss IndexHNSWCagra (preferred for copyTo)
+                    if hasattr(_faiss, "IndexHNSWCagra"):
+                        try:
+                            # Try different constructor signatures defensively
+                            try:
+                                cpu_index = _faiss.IndexHNSWCagra(self.dimension, M)
+                            except TypeError:
+                                # Some builds may expect metric as third arg
+                                if metric == "IP" or metric == "INNER_PRODUCT":
+                                    _metric_enum = _faiss.METRIC_INNER_PRODUCT
+                                else:
+                                    _metric_enum = _faiss.METRIC_L2
+                                cpu_index = _faiss.IndexHNSWCagra(self.dimension, M, _metric_enum)  # type: ignore
+                        except Exception as e:
+                            cpu_index = None
+                    # Fallback: HNSWFlat (no exact CAGRA graph; less faithful)
+                    if cpu_index is None:
+                        cpu_index = _faiss.IndexHNSWFlat(self.dimension, M)
+                        try:
+                            cpu_index.hnsw.efConstruction = int(self.build_params.get("efConstruction", 40))
+                        except Exception:
+                            pass
+
+                    # If we have a Faiss GPU CAGRA index, try copyTo
+                    try:
+                        if self._gpu_index is not None and type(self._gpu_index).__name__ == 'GpuIndexCagra' and hasattr(self._gpu_index, 'copyTo') and cpu_index.__class__.__name__ == 'IndexHNSWCagra':
+                            # Copy GPU CAGRA graph to CPU HNSW-CAGRA for accurate serialization
+                            self._gpu_index.copyTo(cpu_index)
+                            self._cpu_index = cpu_index
+                        else:
+                            # Fallback path: rebuild CPU HNSW by adding raw vectors
+                            self._cpu_index = cpu_index
+                            self._cpu_index.add(xb)
+                    except Exception:
+                        # Any failure in copyTo falls back to add-based rebuild
+                        self._cpu_index = cpu_index
+                        try:
+                            self._cpu_index.add(xb)
+                        except Exception:
+                            pass
+                else:
+                    # Already have a CPU index from previous batches; append
+                    try:
+                        self._cpu_index.add(xb)
+                    except Exception:
+                        pass
             except Exception as e:
-                raise RuntimeError(f"Failed to convert/append to CPU HNSW: {e}")
+                raise RuntimeError(f"Failed to convert/append to CPU HNSW/CAGRA: {e}")
 
     def search(self, xq: np.ndarray, topk: int):
         """Search using either GPU CAGRA or CPU HNSW depending on availability."""
@@ -206,27 +253,47 @@ class CagraIndexAdapter:
         if self._gpu_index is None:
             raise RuntimeError("CAGRA GPU index is not built. Call add() first.")
 
-        # GPU search: prefer Faiss GPU index if applicable
+        # GPU search: prefer Faiss GPU index with dedicated SearchParameters
         try:
             import faiss as _faiss
-            ps = _faiss.ParameterSpace()
-            # Apply search-time params if provided and supported
-            try:
-                if "search_width" in self._search_params:
-                    ps.set_index_parameter(self._gpu_index, "search_width", int(self._search_params["search_width"]))
-            except Exception:
-                pass
-            try:
-                if "itopk_size" in self._search_params:
-                    ps.set_index_parameter(self._gpu_index, "itopk_size", int(self._search_params["itopk_size"]))
-            except Exception:
-                pass
-            try:
-                if "refine_ratio" in self._search_params:
-                    ps.set_index_parameter(self._gpu_index, "refine_ratio", float(self._search_params["refine_ratio"]))
-            except Exception:
-                pass
-            D, I = self._gpu_index.search(xq, int(topk))
+            params_obj = None
+            # Use index-specific SearchParameters if available
+            if hasattr(_faiss, "SearchParametersCagra"):
+                try:
+                    params_obj = _faiss.SearchParametersCagra()
+                    applied = []
+                    def _try_set(obj, names, value):
+                        for n in names:
+                            try:
+                                setattr(obj, n, value)
+                                return n
+                            except Exception:
+                                continue
+                        return None
+
+                    if "search_width" in self._search_params:
+                        name = _try_set(params_obj, ["search_width", "searchWidth"], int(self._search_params["search_width"]))
+                        if name:
+                            applied.append(f"{name}={getattr(params_obj, name)}")
+                    if "itopk_size" in self._search_params:
+                        name = _try_set(params_obj, ["itopk_size", "itopkSize"], int(self._search_params["itopk_size"]))
+                        if name:
+                            applied.append(f"{name}={getattr(params_obj, name)}")
+                    if "refine_ratio" in self._search_params:
+                        name = _try_set(params_obj, ["refine_ratio", "refineRatio"], float(self._search_params["refine_ratio"]))
+                        if name:
+                            applied.append(f"{name}={getattr(params_obj, name)}")
+                    # if applied:
+                        # print(f"[CAGRA] Using SearchParametersCagra: {', '.join(applied)}")
+                except Exception as e:
+                    # Couldn't construct or set, leave params_obj=None and continue
+                    print(f"[CAGRA] Failed to prepare SearchParametersCagra: {e}")
+
+            if params_obj is not None:
+                D, I = self._gpu_index.search(xq, int(topk), params=params_obj)
+            else:
+                # No dedicated params available; run default search on Faiss path
+                D, I = self._gpu_index.search(xq, int(topk))
             return D, I
         except Exception:
             # Fallback to cuVS search path if Faiss search failed (e.g., _gpu_index is cuVS handle)
@@ -275,3 +342,7 @@ class CagraIndexAdapter:
     def search_with_params(self, xq: np.ndarray, topk: int, params: dict | None = None):
         self._search_params = params or {}
         return self.search(xq, topk)
+
+    # Expose CPU index for caching/saving in main flow when available
+    def get_cpu_index(self):
+        return self._cpu_index

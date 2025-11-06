@@ -56,6 +56,7 @@ def _maybe_create_cagra_adapter(index_type: str, dimension: int, params: dict | 
             _, convert_to_hnsw = index_type.split("->", 1)
             convert_to_hnsw = convert_to_hnsw.strip()
         except Exception:
+            print(f"Failed to parse convert_to_hnsw: {convert_to_hnsw}")
             convert_to_hnsw = None
     index_params = params or {}
     return CagraIndexAdapter(dimension=int(dimension), build_params=index_params, convert_to_hnsw=convert_to_hnsw)
