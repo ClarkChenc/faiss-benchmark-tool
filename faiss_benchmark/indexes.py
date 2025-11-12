@@ -61,6 +61,15 @@ def _maybe_create_cagra_adapter(index_type: str, dimension: int, params: dict | 
     index_params = params or {}
     return CagraIndexAdapter(dimension=int(dimension), build_params=index_params, convert_to_hnsw=convert_to_hnsw)
 
+def _maybe_create_scann_adapter(dimension: int, params: dict | None):
+    """Create ScaNN adapter for CPU ANN search.
+
+    ScaNN 不依赖 Faiss，也不支持 GPU；这里直接返回适配器实例。
+    """
+    from .scann_adapter import ScannIndexAdapter
+    index_params = params or {}
+    return ScannIndexAdapter(dimension=int(dimension), build_params=index_params)
+
 def create_index(index_type: str, dimension: int, use_gpu: bool = False, params: dict = None):
     """Creates a Faiss index with build-time params, moves it to GPU if requested.
 
@@ -75,6 +84,10 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
         # Route to CAGRA adapter when requested (CUDA12 required)
         if "CAGRA" in index_type.upper():
             return _maybe_create_cagra_adapter(index_type=index_type, dimension=dimension, params=params)
+
+        # Route to ScaNN adapter (CPU-only)
+        if "SCANN" in index_type.upper():
+            return _maybe_create_scann_adapter(dimension=dimension, params=params)
 
         index = faiss.index_factory(dimension, index_type)
 

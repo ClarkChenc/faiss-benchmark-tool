@@ -35,6 +35,24 @@ def split_params(params, index_type):
         if "metric" in params:
             build_params["metric"] = params["metric"]
 
+    if "SCANN" in index_type.upper():
+        # ScaNN 构建参数（CPU-only）
+        for k in [
+            "distance_measure",  # dot_product / squared_l2
+            "num_neighbors",     # builder 中候选邻居数
+            "num_leaves",
+            "leaf_size",
+            "ah_bits",
+            "ah_threshold",
+            "reorder_k",
+        ]:
+            if k in params:
+                build_params[k] = params[k]
+
+        # 搜索时参数（统一在 search_with_params 使用），示例：final_num_neighbors
+        if "final_num_neighbors" in params:
+            search_params["final_num_neighbors"] = params["final_num_neighbors"]
+
     # Any other keys not explicitly recognized default to search params,
     # except for 'use_gpu' which is handled separately
     for k, v in params.items():
@@ -211,7 +229,7 @@ def main():
                 except Exception as e:
                     index = cpu_index_loaded
                     print(f"Warning: failed to wrap CPU index into adapter: {e}")
-            elif not use_gpu and os.path.exists(cache_path) and os.path.exists(meta_path):
+            elif not use_gpu and ("SCANN" not in index_type.upper()) and os.path.exists(cache_path) and os.path.exists(meta_path):
                 print(f"Loading index from cache: {cache_path}")
                 index = faiss.read_index(cache_path)
                 with open(meta_path, 'r') as f:
@@ -232,10 +250,19 @@ def main():
                 
                 # 保存 CPU 索引缓存（普通 CPU 索引）
                 if not use_gpu and not (is_cagra and does_convert):
-                    print(f"Saving index to cache: {cache_path}")
-                    faiss.write_index(index, cache_path)
-                    with open(meta_path, 'w') as f:
-                        json.dump(build_results, f)
+                    # ScaNN 不是 Faiss 索引，不能使用 faiss.write_index 序列化
+                    if "SCANN" in index_type.upper():
+                        print("SCANN index: skip Faiss serialization; will not cache index file.")
+                        try:
+                            with open(meta_path, 'w') as f:
+                                json.dump(build_results, f)
+                        except Exception:
+                            pass
+                    else:
+                        print(f"Saving index to cache: {cache_path}")
+                        faiss.write_index(index, cache_path)
+                        with open(meta_path, 'w') as f:
+                            json.dump(build_results, f)
 
                 # 保存 CAGRA 转换后的 CPU 索引缓存（即使 use_gpu=true 也保存）
                 if is_cagra and does_convert:

@@ -76,6 +76,20 @@ index_types:
       # HNSW 搜索参数仍然由通用逻辑控制（efSearch 可在此传入）
       efSearch: 16
 
+  # ScaNN（CPU ANN，低延迟点积/L2）
+  - index_type: "SCANN"
+    use_gpu: false
+    index_param:
+      distance_measure: squared_l2   # 或 squared_l2 / dot_product
+      num_neighbors: 10               # 构建候选邻居数
+      num_leaves: 2000                # 可选：分区数量
+      leaf_size: 100                  # 可选：叶子大小
+      ah_bits: 2                      # 可选：AH 位数（1-4 常见）
+      ah_threshold: 0.2               # 可选：AH 阈值
+      reorder_k: 100                  # 可选：构建时开启重排，候选规模
+    search_param:
+      final_num_neighbors: 10         # 搜索阶段最终返回邻居数量（默认跟 topk）
+
 # 参数说明：
 # 
 # 批处理参数：

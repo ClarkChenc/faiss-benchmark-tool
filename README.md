@@ -148,6 +148,8 @@ index_types:
 - `IVF1024,PQ8+16`: 倒排索引 + 乘积量化
 - `HNSW32,Flat`: 32邻居的分层导航小世界图，精确搜索
 - `HNSW32,PQ8+16`: HNSW + 乘积量化
+ - `CAGRA`: GPU 图索引（cuVS/RAFT）；或 `CAGRA->HNSW32,Flat` 转换为 CPU HNSW 检索与缓存
+ - `SCANN`: Google ScaNN（CPU ANN，支持 dot_product 与 squared_l2）
 
 ## 使用方法
 
@@ -167,6 +169,28 @@ index_types:
     use_gpu: true
     index_param: {}
     search_param: {}
+
+### 使用 ScaNN (CPU)
+
+在 `config.yaml` 增加如下条目即可使用 ScaNN：
+
+```yaml
+index_types:
+  - index_type: "SCANN"
+    use_gpu: false
+    index_param:
+      distance_measure: dot_product   # 或 squared_l2
+      num_neighbors: 10               # 构建候选邻居数
+      num_leaves: 2000                # 可选：分区数量
+      leaf_size: 100                  # 可选：叶子大小
+      ah_bits: 2                      # 可选：AH 位数（1-4 常见）
+      ah_threshold: 0.2               # 可选：AH 阈值
+      reorder_k: 100                  # 可选：构建时开启重排，候选规模
+    search_param:
+      final_num_neighbors: 10         # 搜索阶段最终返回邻居数量（默认跟 topk）
+```
+
+依赖：在环境中安装 `scann` 包（Linux 轮子，Python 3.8+）。
 ```
 
 ### 指定配置文件

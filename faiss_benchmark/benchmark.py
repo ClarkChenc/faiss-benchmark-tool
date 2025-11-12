@@ -16,6 +16,16 @@ def build_index(index, xb):
     mem_info = get_gpu_memory()
     peak_used = mem_info["used_bytes"] if mem_info else None
     total_bytes = mem_info["total_bytes"] if mem_info else None
+    # 某些适配器（如 ScaNN）需要在构建后调用 finalize_build 完成索引创建
+    if hasattr(index, "finalize_build"):
+        try:
+            fb = index.finalize_build()
+            # 将 finalize 阶段的构建时间并入 add_time（或以其为准）
+            add_time = (add_time or 0.0) + float(fb.get("add_time", 0.0))
+            peak_used = peak_used if peak_used is not None else fb.get("gpu_mem_peak_used_bytes")
+            total_bytes = total_bytes if total_bytes is not None else fb.get("gpu_mem_total_bytes")
+        except Exception:
+            pass
     return {
         "train_time": train_time,
         "add_time": add_time,
@@ -93,6 +103,15 @@ def build_index_batch(index, dataset_info, batch_config):
     mem_info = get_gpu_memory()
     peak_used = mem_info["used_bytes"] if mem_info else None
     total_bytes = mem_info["total_bytes"] if mem_info else None
+    # 某些适配器（如 ScaNN）需要在构建后调用 finalize_build 完成索引创建
+    if hasattr(index, "finalize_build"):
+        try:
+            fb = index.finalize_build()
+            add_time = (add_time or 0.0) + float(fb.get("add_time", 0.0))
+            peak_used = peak_used if peak_used is not None else fb.get("gpu_mem_peak_used_bytes")
+            total_bytes = total_bytes if total_bytes is not None else fb.get("gpu_mem_total_bytes")
+        except Exception:
+            pass
     return {
         "train_time": train_time,
         "add_time": add_time,
