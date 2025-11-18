@@ -33,6 +33,7 @@ def build_index(index, xb):
         "gpu_mem_total_bytes": total_bytes,
     }
 
+# 这个函数不兼容 gpu 下的索引，gpu 索引需要一次性全部 add
 def build_index_batch(index, dataset_info, batch_config):
     """使用分批处理构建索引"""
     base_path = dataset_info['base_path']

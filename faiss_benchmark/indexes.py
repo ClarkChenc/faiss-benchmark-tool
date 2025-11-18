@@ -102,13 +102,6 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
             except Exception:
                 pass
 
-        # If IVF build param 'nlist' is explicitly provided (index_type may already encode it)
-        if "IVF" in index_type and "nlist" in index_params:
-            try:
-                faiss.ParameterSpace().set_index_parameter(index, "nlist", int(index_params["nlist"]))
-            except Exception:
-                pass
-
         if use_gpu:
             res = faiss.StandardGpuResources()
             gpu_index = faiss.index_cpu_to_gpu(res, 0, index)

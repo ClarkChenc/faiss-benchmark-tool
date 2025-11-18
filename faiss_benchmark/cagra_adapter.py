@@ -85,84 +85,7 @@ class CagraIndexAdapter:
             # Add vectors (build happens internally, supports incremental add)
             self._gpu_index.add(xb)
         except Exception as e_faiss:
-            faiss_errors.append(str(e_faiss))
-            # Fallback: build via cuVS bindings
-            try:
-                # Attempt to import cuVS CAGRA
-                import_errors = []
-                try:
-                    from cuvs.neighbors import cagra as _cagra
-                except Exception as e:
-                    import_errors.append(f"cuvs.neighbors import failed: {e}")
-                    # Alternative import paths (older RAFT/cuVS layouts)
-                    try:
-                        from cuvs.legacy.neighbors import cagra as _cagra  # type: ignore
-                    except Exception as e2:
-                        import_errors.append(f"cuvs.legacy.neighbors import failed: {e2}")
-                        # Try experimental or raft paths as additional fallbacks
-                        try:
-                            from cuvs.experimental.neighbors import cagra as _cagra  # type: ignore
-                        except Exception as e3:
-                            import_errors.append(f"cuvs.experimental.neighbors import failed: {e3}")
-                            try:
-                                from raft.neighbors import cagra as _cagra  # type: ignore
-                            except Exception as e4:
-                                import_errors.append(f"raft.neighbors import failed: {e4}")
-                                _cagra = None
-
-                # If import failed due to missing shared library, try to locate and pre-load it
-                if _cagra is None and any("libcuvs_c.so" in str(err) for err in import_errors):
-                    candidates = []
-                    # Search common site-packages and sys.path locations for libcuvs_c.so
-                    paths = []
-                    try:
-                        paths.extend(site.getsitepackages())
-                    except Exception:
-                        pass
-                    try:
-                        paths.append(site.getusersitepackages())
-                    except Exception:
-                        pass
-                    paths.extend([p for p in sys.path if isinstance(p, str)])
-                    for base in paths:
-                        try:
-                            candidates.extend(glob.glob(os.path.join(base, "**", "libcuvs_c.so"), recursive=True))
-                        except Exception:
-                            pass
-                    # Preload the first matching library, then retry import
-                    for libpath in candidates:
-                        try:
-                            ctypes.CDLL(libpath)
-                            # Retry import
-                            from cuvs.neighbors import cagra as _cagra  # type: ignore
-                            break
-                        except Exception:
-                            continue
-
-                if _cagra is None:
-                    # Attach detailed import errors to help diagnose environment issues
-                    raise RuntimeError(
-                        "cuVS CAGRA not found. Please install RAPIDS/cuVS with CUDA. "
-                        "Refer to https://rapids.ai/install for conda installation instructions. "
-                        f"Import attempts: {' | '.join(import_errors)} | faiss errors: {' | '.join(faiss_errors)}"
-                    )
-
-                # Build params with sane fallbacks
-                graph_degree = int(self.build_params.get("graph_degree", 32))
-                intermediate_graph_degree = int(self.build_params.get("intermediate_graph_degree", max(64, 2 * graph_degree)))
-
-                # Build GPU index via cuVS (no incremental add guaranteed)
-                try:
-                    self._gpu_index = _cagra.build(
-                        xb,
-                        graph_degree=graph_degree,
-                        intermediate_graph_degree=intermediate_graph_degree,
-                        metric=metric,
-                    )
-                except TypeError:
-                    self._gpu_index = _cagra.build(xb)
-            except Exception as e:
-                raise RuntimeError(f"Failed to build CAGRA GPU index (Faiss + cuVS fallback failed): {e}")
+            raise RuntimeError(f"Failed to build CAGRA GPU index (Faiss + cuVS fallback failed): {str(e_faiss)}")
 
         # Optional conversion to CPU index via Faiss CAGRA->HNSW copy
         if self.convert_to_hnsw:
@@ -201,13 +124,6 @@ class CagraIndexAdapter:
                                 cpu_index = _faiss.IndexHNSWCagra(self.dimension, M, _metric_enum)  # type: ignore
                         except Exception as e:
                             cpu_index = None
-                    # Fallback: HNSWFlat (no exact CAGRA graph; less faithful)
-                    if cpu_index is None:
-                        cpu_index = _faiss.IndexHNSWFlat(self.dimension, M)
-                        try:
-                            cpu_index.hnsw.efConstruction = int(self.build_params.get("efConstruction", 40))
-                        except Exception:
-                            pass
 
                     # If we have a Faiss GPU CAGRA index, try copyTo
                     try:
