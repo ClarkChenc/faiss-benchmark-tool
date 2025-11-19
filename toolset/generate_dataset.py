@@ -170,7 +170,7 @@ def calculate_dynamic_batch_size(current_vectors, total_vectors, dimension, gpu_
     return optimal_batch_size
 
 
-def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memory_gb=10):
+def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memory_gb=10, ngpu: int | None = None, gpu_shard: bool = True):
     """
     创建索引用于 groundtruth 生成（支持流式加载和内存检查）
 
@@ -217,14 +217,21 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
         
         if use_gpu:
             # 检查 GPU 可用性
-            if not faiss.get_num_gpus():
+            n_available = faiss.get_num_gpus()
+            if n_available <= 0:
                 raise RuntimeError("未检测到可用的 GPU")
+            # 选择多 GPU 数量
+            if ngpu is None:
+                ngpu = n_available
+            ngpu = max(1, min(ngpu, n_available))
 
-            print(f"使用 GPU 创建索引 (维度: {dimension})")
-            # 创建 GPU 索引
-            res = faiss.StandardGpuResources()
+            print(f"使用 {ngpu} 个 GPU 创建索引 (维度: {dimension}) | shard={gpu_shard}")
+            # 创建 CPU 基索引并克隆到所有可见 GPU
             index_cpu = faiss.IndexFlatL2(int(dimension))
-            index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
+            co = faiss.GpuMultipleClonerOptions()
+            co.shard = bool(gpu_shard)
+            # 使用所有可见 GPU；如需指定 GPU，请设置 CUDA_VISIBLE_DEVICES 环境变量
+            index = faiss.index_cpu_to_all_gpus(index_cpu, co)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
             index = faiss.IndexFlatL2(int(dimension))
@@ -264,14 +271,18 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
 
         if use_gpu:
             # 检查 GPU 可用性
-            if not faiss.get_num_gpus():
+            n_available = faiss.get_num_gpus()
+            if n_available <= 0:
                 raise RuntimeError("未检测到可用的 GPU")
+            if ngpu is None:
+                ngpu = n_available
+            ngpu = max(1, min(ngpu, n_available))
 
-            print(f"使用 GPU 创建索引 (维度: {dimension})")
-            # 创建 GPU 索引
-            res = faiss.StandardGpuResources()
+            print(f"使用 {ngpu} 个 GPU 创建索引 (维度: {dimension}) | shard={gpu_shard}")
             index_cpu = faiss.IndexFlatL2(int(dimension))
-            index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
+            co = faiss.GpuMultipleClonerOptions()
+            co.shard = bool(gpu_shard)
+            index = faiss.index_cpu_to_all_gpus(index_cpu, co)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
             index = faiss.IndexFlatL2(int(dimension))
@@ -386,6 +397,15 @@ def main():
         "--gpu", action="store_true", help="使用 GPU 加速 groundtruth 生成"
     )
     parser.add_argument(
+        "--ngpu", type=int, default=0, help="使用的 GPU 数量 (默认 0 表示使用所有可用 GPU)"
+    )
+    parser.add_argument(
+        "--gpu-shard", action="store_true", default=True, help="启用分片模式（跨 GPU 分片而非复制，默认开启）"
+    )
+    parser.add_argument(
+        "--no-gpu-shard", dest="gpu_shard", action="store_false", help="关闭分片模式，改为在每个 GPU 复制完整索引"
+    )
+    parser.add_argument(
         "--batch-size", type=int, default=0, help="批处理大小 (0 表示自动选择)"
     )
     parser.add_argument(
@@ -466,7 +486,8 @@ def main():
         
         # 创建索引（使用流式加载）
         base_file = f"{output_prefix}_base.fvecs"
-        index = create_index(base_file, args.gpu, gpu_memory_gb=args.gpu_memory)
+        ngpu_val = None if args.ngpu == 0 else int(args.ngpu)
+        index = create_index(base_file, args.gpu, gpu_memory_gb=args.gpu_memory, ngpu=ngpu_val, gpu_shard=bool(args.gpu_shard))
 
         # 生成 groundtruth（使用流式加载 query 向量）
         query_file = f"{output_prefix}_query.fvecs"
