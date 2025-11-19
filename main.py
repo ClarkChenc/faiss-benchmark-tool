@@ -119,6 +119,8 @@ def main():
 
     # Load full configuration
     config = load_config(args.config)
+    # Global flag to ignore CPU cache and force rebuild
+    ignore_cache_global = bool(config.get("ignore_cache", False))
 
     # Set number of threads for Faiss
     num_threads = int(config.get("num_threads", num_threads_env))
@@ -207,12 +209,15 @@ def main():
         cpu_cache_path = os.path.join(cache_dir, cpu_cache_filename)
         cpu_meta_path = os.path.join(cache_dir, cpu_cache_filename.replace('.index', '_meta.json'))
 
+        # Per-index override: allow local ignore_cache to supersede global
+        ignore_cache = bool(index_config.get("ignore_cache", ignore_cache_global))
         # Show effective params after split
         print(f"\nTesting index: {index_type} | build_param={build_params} | search_param={search_params} | use_gpu={use_gpu}")
 
         try:
             # 优先覆盖：如果是 CAGRA 转换且存在 CPU 缓存，则直接加载 CPU 索引
-            if is_cagra and does_convert and os.path.exists(cpu_cache_path) and os.path.exists(cpu_meta_path):
+            if (is_cagra and does_convert and not ignore_cache and
+                os.path.exists(cpu_cache_path) and os.path.exists(cpu_meta_path)):
                 print(f"Loading converted CPU index from cache: {cpu_cache_path}")
                 cpu_index_loaded = faiss.read_index(cpu_cache_path)
                 with open(cpu_meta_path, 'r') as f:
@@ -245,7 +250,8 @@ def main():
                 except Exception as e:
                     index = cpu_index_loaded
                     print(f"Warning: failed to wrap CPU index into adapter: {e}")
-            elif not use_gpu and ("SCANN" not in index_type.upper()) and os.path.exists(cache_path) and os.path.exists(meta_path):
+            elif (not use_gpu and ("SCANN" not in index_type.upper()) and not ignore_cache and
+                  os.path.exists(cache_path) and os.path.exists(meta_path)):
                 print(f"Loading index from cache: {cache_path}")
                 index = faiss.read_index(cache_path)
                 with open(meta_path, 'r') as f:
@@ -254,6 +260,8 @@ def main():
             else:
                 if use_gpu:
                     print("GPU mode is enabled. Index will be rebuilt and not cached.")
+                if ignore_cache and not use_gpu:
+                    print("ignore_cache=true: Skipping CPU cache load and rebuilding index.")
                 print("Building new index...")
                 # Create index using ONLY build-time params to avoid search-param cache churn
                 index = create_index(index_type, dimension, use_gpu=use_gpu, params=build_params)

@@ -17,6 +17,10 @@ warmup_queries: 0
 # 线程数
 num_threads: 10
 
+# 是否忽略 CPU 缓存并强制重建索引（全局开关）
+# 也可在单个 index 配置中设置 ignore_cache: true 进行覆盖
+ignore_cache: false
+
 # 批处理配置（用于内存优化）
 batch_processing:
   enabled: false            # 是否启用批处理模式（默认启用以避免 OOM）
@@ -30,6 +34,8 @@ index_types:
     # 显式区分构建参数与搜索参数（可选）
     index_param: {}
     search_param: {}
+    # 可选：覆盖全局缓存策略
+    # ignore_cache: true
 
   # GPU 上的暴力搜索
   - index_type: "Flat"
@@ -44,6 +50,7 @@ index_types:
       # nlist: 1024
     search_param:
       nprobe: 16  # 搜索时探测的聚类数量，影响精度和速度的平衡
+    # ignore_cache: true
   
   # HNSW 索引（分层导航小世界图）
   - index_type: "HNSW32,Flat"
@@ -51,6 +58,7 @@ index_types:
       efConstruction: 40  # 构建时的搜索宽度，影响索引质量和构建时间
     search_param:
       efSearch: 16        # 搜索时的搜索宽度，影响精度和搜索速度
+    # ignore_cache: true
 
   # CAGRA 索引（GPU 图索引，使用 cuVS）
   - index_type: "CAGRA"
