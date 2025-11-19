@@ -11,10 +11,89 @@ import os
 import numpy as np
 import faiss
 from tqdm import tqdm
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+
 from faiss_benchmark.utils import (
     fvecs_read, fvecs_write, ivecs_write, 
     get_fvecs_info, fvecs_read_range, fvecs_write_streaming
 )
+
+
+def _to_multi_gpus(index_cpu: faiss.Index, ngpu: int | None, shard: bool, reserve_vecs_per_gpu: int | None = None, device_ids: list[int] | None = None) -> faiss.Index:
+    """Clone a CPU index to multiple GPUs with explicit device/resources control.
+
+    Falls back to all visible GPUs if `ngpu` is None/0 or exceeds availability.
+    """
+    n_available = faiss.get_num_gpus()
+    if n_available <= 0:
+        raise RuntimeError("未检测到可用的 GPU")
+    if device_ids is not None and len(device_ids) > 0:
+        # Respect explicit device ids, clamp to available
+        ngpu = min(len(device_ids), n_available)
+    else:
+        if ngpu is None or ngpu <= 0 or ngpu > n_available:
+            ngpu = n_available
+
+    # Build resource and device vectors
+    res_vec = faiss.GpuResourcesVector()
+    # Keep Python references to resources to avoid GC-related segfaults
+    res_list = []
+    # Prefer Int32Vector; fallback to IntVector for older Faiss builds
+    try:
+        dev_vec = faiss.Int32Vector()
+    except Exception:
+        dev_vec = faiss.IntVector()
+    if device_ids is None or len(device_ids) == 0:
+        ids = list(range(ngpu))
+    else:
+        ids = [int(i) for i in device_ids[:ngpu]]
+    for i in ids:
+        res = faiss.StandardGpuResources()
+        res_list.append(res)
+        res_vec.push_back(res)
+        dev_vec.push_back(i)
+
+    co = faiss.GpuMultipleClonerOptions()
+    co.shard = bool(shard)
+    if reserve_vecs_per_gpu is not None and reserve_vecs_per_gpu > 0:
+        try:
+            co.reserveVecs = int(reserve_vecs_per_gpu)
+        except Exception:
+            pass
+    try:
+        idx = faiss.index_cpu_to_gpu_multiple(res_vec, dev_vec, index_cpu, co)
+        # Attach references to avoid garbage-collection of resources
+        try:
+            setattr(idx, "_gpu_res_vec", res_vec)
+            setattr(idx, "_gpu_res_list", res_list)
+            setattr(idx, "_gpu_dev_vec", dev_vec)
+            setattr(idx, "_gpu_cloner_options", co)
+        except Exception:
+            pass
+        return idx
+    except Exception:
+        # Fallback to built-in helper that uses all visible GPUs
+        try:
+            idx = faiss.index_cpu_to_all_gpus(index_cpu, co)
+            try:
+                setattr(idx, "_gpu_cloner_options", co)
+            except Exception:
+                pass
+            return idx
+        except Exception:
+            # Final fallback: single GPU 0
+            res = faiss.StandardGpuResources()
+            idx = faiss.index_cpu_to_gpu(res, 0, index_cpu)
+            try:
+                setattr(idx, "_gpu_res_single", res)
+                setattr(idx, "_gpu_cloner_options", co)
+            except Exception:
+                pass
+            return idx
 
 
 def split_dataset(input_file, num_queries, output_prefix, chunk_size=50000):
@@ -170,7 +249,7 @@ def calculate_dynamic_batch_size(current_vectors, total_vectors, dimension, gpu_
     return optimal_batch_size
 
 
-def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memory_gb=10, ngpu: int | None = None, gpu_shard: bool = True):
+def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memory_gb=10, ngpu: int | None = None, gpu_shard: bool = True, device_ids: list[int] | None = None):
     """
     创建索引用于 groundtruth 生成（支持流式加载和内存检查）
 
@@ -226,12 +305,9 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
             ngpu = max(1, min(ngpu, n_available))
 
             print(f"使用 {ngpu} 个 GPU 创建索引 (维度: {dimension}) | shard={gpu_shard}")
-            # 创建 CPU 基索引并克隆到所有可见 GPU
             index_cpu = faiss.IndexFlatL2(int(dimension))
-            co = faiss.GpuMultipleClonerOptions()
-            co.shard = bool(gpu_shard)
-            # 使用所有可见 GPU；如需指定 GPU，请设置 CUDA_VISIBLE_DEVICES 环境变量
-            index = faiss.index_cpu_to_all_gpus(index_cpu, co)
+            reserve = int((total_vectors + ngpu - 1) // ngpu) if ngpu > 0 else None
+            index = _to_multi_gpus(index_cpu, ngpu=ngpu, shard=gpu_shard, reserve_vecs_per_gpu=reserve, device_ids=device_ids)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
             index = faiss.IndexFlatL2(int(dimension))
@@ -280,9 +356,8 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
 
             print(f"使用 {ngpu} 个 GPU 创建索引 (维度: {dimension}) | shard={gpu_shard}")
             index_cpu = faiss.IndexFlatL2(int(dimension))
-            co = faiss.GpuMultipleClonerOptions()
-            co.shard = bool(gpu_shard)
-            index = faiss.index_cpu_to_all_gpus(index_cpu, co)
+            reserve = int((base_vectors.shape[0] + ngpu - 1) // ngpu) if ngpu > 0 else None
+            index = _to_multi_gpus(index_cpu, ngpu=ngpu, shard=gpu_shard, reserve_vecs_per_gpu=reserve, device_ids=device_ids)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
             index = faiss.IndexFlatL2(int(dimension))
@@ -487,7 +562,15 @@ def main():
         # 创建索引（使用流式加载）
         base_file = f"{output_prefix}_base.fvecs"
         ngpu_val = None if args.ngpu == 0 else int(args.ngpu)
-        index = create_index(base_file, args.gpu, gpu_memory_gb=args.gpu_memory, ngpu=ngpu_val, gpu_shard=bool(args.gpu_shard))
+        # Respect CUDA_VISIBLE_DEVICES if set
+        vis = os.environ.get('CUDA_VISIBLE_DEVICES')
+        device_ids = None
+        if vis:
+            try:
+                device_ids = [int(x) for x in vis.split(',') if x.strip()!='']
+            except Exception:
+                device_ids = None
+        index = create_index(base_file, args.gpu, gpu_memory_gb=args.gpu_memory, ngpu=ngpu_val, gpu_shard=bool(args.gpu_shard), device_ids=device_ids)
 
         # 生成 groundtruth（使用流式加载 query 向量）
         query_file = f"{output_prefix}_query.fvecs"
