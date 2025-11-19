@@ -55,7 +55,6 @@ class ScannIndexAdapter:
     def _build_searcher(self):
         import scann
         import inspect
-        import os
 
         if self._base is None or self._base.shape[0] == 0:
             raise RuntimeError("ScaNN 构建失败：基向量为空")
@@ -72,14 +71,6 @@ class ScannIndexAdapter:
             builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, distance)
         else:
             builder = scann.ScannBuilder(self._base, num_neighbors=num_neighbors, distance_measure=distance)
-
-        # Attempt to unify build-time threads via OMP setting
-        try:
-            omp_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
-            if hasattr(builder, "set_n_training_threads"):
-                builder.set_n_training_threads(omp_threads)
-        except Exception:
-            pass
         # 记录可用方法，便于诊断
         builder_methods = {m for m in dir(builder) if not m.startswith("_")}
 
@@ -141,13 +132,6 @@ class ScannIndexAdapter:
                 builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, distance)
             else:
                 builder = scann.ScannBuilder(self._base, num_neighbors=num_neighbors, distance_measure=distance)
-            # Re-apply thread preference on fallback builder
-            try:
-                omp_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
-                if hasattr(builder, "set_n_training_threads"):
-                    builder.set_n_training_threads(omp_threads)
-            except Exception:
-                pass
             try:
                 if "autopilot" in {m for m in dir(builder) if not m.startswith("_")}:
                     getattr(builder, "autopilot")()
