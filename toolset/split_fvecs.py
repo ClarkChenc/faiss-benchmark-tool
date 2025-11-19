@@ -11,7 +11,7 @@ import os
 import math
 import numpy as np
 from tqdm import tqdm
-from faiss_benchmark.utils import (
+from ../faiss_benchmark.utils import (
     get_fvecs_info, fvecs_read_range, fvecs_write_streaming
 )
 

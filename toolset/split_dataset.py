@@ -1,6 +1,12 @@
 import argparse
 import os
+import sys
 import numpy as np
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+
 from faiss_benchmark.utils import fvecs_read, ivecs_read, fvecs_write, ivecs_write
 
 def split_file(input_path, output_path, count):
