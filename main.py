@@ -79,15 +79,35 @@ def main():
                 num_threads_env = int(cfg_preview.get("num_threads", num_threads_env))
     except Exception:
         pass
-    os.environ.setdefault("OMP_NUM_THREADS", str(num_threads_env))
+    # Unify FAISS and ScaNN under OMP threads: force-set OMP_NUM_THREADS
+    os.environ["OMP_NUM_THREADS"] = str(num_threads_env)
     os.environ.setdefault("MKL_NUM_THREADS", str(num_threads_env))
     os.environ.setdefault("OPENBLAS_NUM_THREADS", str(num_threads_env))
     os.environ.setdefault("NUMEXPR_NUM_THREADS", str(num_threads_env))
     os.environ.setdefault("VECLIB_MAXIMUM_THREADS", str(num_threads_env))
-    
+
     os.environ.setdefault("MKL_DYNAMIC", "FALSE")
     os.environ.setdefault("OPENBLAS_DYNAMIC", "0")
     os.environ.setdefault("OMP_MAX_ACTIVE_LEVELS", "1")
+    print(f"OMP_NUM_THREADS set to {num_threads_env}")
+
+    # Try to align TensorFlow threading with OMP for ScaNN runtime
+    try:
+        import tensorflow as tf
+        try:
+            # TF2 API
+            tf.config.threading.set_intra_op_parallelism_threads(num_threads_env)
+            tf.config.threading.set_inter_op_parallelism_threads(max(1, num_threads_env // 2))
+            print(f"TensorFlow threads set: intra={num_threads_env}, inter={max(1, num_threads_env // 2)}")
+        except Exception:
+            # TF1 compatibility
+            sess_cfg = tf.ConfigProto(intra_op_parallelism_threads=num_threads_env,
+                                      inter_op_parallelism_threads=max(1, num_threads_env // 2))
+            tf.Session(config=sess_cfg)
+            print("TensorFlow (v1) session configured for threading")
+    except Exception as _tf_err:
+        # TensorFlow not present or configuration failed; ScaNN will still respect OMP for some ops
+        print(f"TensorFlow threading setup skipped: {_tf_err}")
 
     # Import heavy libs after env setup so they honor thread limits
     import faiss
