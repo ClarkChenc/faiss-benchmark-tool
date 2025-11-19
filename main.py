@@ -79,15 +79,15 @@ def main():
                 num_threads_env = int(cfg_preview.get("num_threads", num_threads_env))
     except Exception:
         pass
-    os.environ.setdefault("OMP_NUM_THREADS", str(num_threads_env))
-    os.environ.setdefault("MKL_NUM_THREADS", str(num_threads_env))
-    os.environ.setdefault("OPENBLAS_NUM_THREADS", str(num_threads_env))
-    os.environ.setdefault("NUMEXPR_NUM_THREADS", str(num_threads_env))
-    os.environ.setdefault("VECLIB_MAXIMUM_THREADS", str(num_threads_env))
-    
-    os.environ.setdefault("MKL_DYNAMIC", "FALSE")
-    os.environ.setdefault("OPENBLAS_DYNAMIC", "0")
-    os.environ.setdefault("OMP_MAX_ACTIVE_LEVELS", "1")
+    os.environ["OMP_NUM_THREADS"] = str(num_threads_env)
+    os.environ["MKL_NUM_THREADS"] = str(num_threads_env)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(num_threads_env)
+    os.environ["NUMEXPR_NUM_THREADS"] = str(num_threads_env)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(num_threads_env)
+
+    os.environ["MKL_DYNAMIC"] = "FALSE"
+    os.environ["OPENBLAS_DYNAMIC"] = "0"
+    os.environ["OMP_MAX_ACTIVE_LEVELS"] = "1"
 
     # Import heavy libs after env setup so they honor thread limits
     import faiss

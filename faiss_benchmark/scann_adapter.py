@@ -56,16 +56,6 @@ class ScannIndexAdapter:
         import scann
         import inspect
 
-        if self._base is None or self._base.shape[0] == 0:
-            raise RuntimeError("ScaNN 构建失败：基向量为空")
-
-        # 距离度量
-        distance = str(self.build_params.get("distance_measure", "dot_product")).lower()
-        if distance not in ("dot_product", "squared_l2"):
-            distance = "dot_product"
-
-        num_neighbors = int(self.build_params.get("num_neighbors", max(10, min(50, self._search_params.get("final_num_neighbors", 10)))))
-
         # 优先使用 pybind builder（在多版本环境中更稳定）
         if hasattr(scann, "scann_ops_pybind") and hasattr(scann.scann_ops_pybind, "builder"):
             builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, distance)

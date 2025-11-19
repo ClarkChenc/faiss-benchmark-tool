@@ -304,10 +304,36 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
                 ngpu = n_available
             ngpu = max(1, min(ngpu, n_available))
 
-            print(f"使用 {ngpu} 个 GPU 创建索引 (维度: {dimension}) | shard={gpu_shard}")
-            index_cpu = faiss.IndexFlatL2(int(dimension))
-            reserve = int((total_vectors + ngpu - 1) // ngpu) if ngpu > 0 else None
-            index = _to_multi_gpus(index_cpu, ngpu=ngpu, shard=gpu_shard, reserve_vecs_per_gpu=reserve, device_ids=device_ids)
+            print(f"使用 {ngpu} 个 GPU 创建分片索引 (维度: {dimension})")
+            shard_indices: list[faiss.Index] = []
+            # 创建每个 GPU 的 IndexIDMap(GpuIndexFlatL2)
+            for i in range(ngpu):
+                dev = (device_ids[i] if device_ids and i < len(device_ids) else i)
+                res = faiss.StandardGpuResources()
+                cfg = None
+                try:
+                    cfg = faiss.GpuIndexFlatConfig()
+                    cfg.device = dev
+                except Exception:
+                    pass
+                try:
+                    gpu_idx = faiss.GpuIndexFlatL2(res, int(dimension), cfg) if cfg is not None else faiss.GpuIndexFlatL2(res, int(dimension))
+                except Exception:
+                    # 兼容 IP 距离的可能需求（当前默认 L2）
+                    gpu_idx = faiss.GpuIndexFlatL2(res, int(dimension))
+                shard_indices.append(faiss.IndexIDMap(gpu_idx))
+
+            # 聚合为 IndexShards，关闭 successive_ids 以支持分批 add_with_ids
+            try:
+                index = faiss.IndexShards(int(dimension), False, False)
+            except Exception:
+                index = faiss.IndexShards(int(dimension))
+                try:
+                    index.successive_ids = False
+                except Exception:
+                    pass
+            for s in shard_indices:
+                index.add_shard(s)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
             index = faiss.IndexFlatL2(int(dimension))
@@ -315,7 +341,6 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
         # 流式添加向量到索引
         print(f"正在流式添加 {total_vectors} 个向量到索引...")
         if use_gpu:
-            # 取消动态批大小调整，始终使用用户提供的 batch_size
             print(f"使用固定批处理大小（GPU 模式）：{chunk_size}")
         
         current_idx = 0
@@ -324,21 +349,27 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
         
         with tqdm(total=total_vectors, desc="添加向量") as pbar:
             while remaining > 0:
-                # 取消动态批次调整，始终使用配置的 chunk_size
                 batch_size = min(chunk_size, remaining)
-                
                 vectors = fvecs_read_range(base_file, current_idx, batch_size)
-                
-                # 添加到索引
-                index.add(vectors.astype(np.float32))
-                
+                vecs = vectors.astype(np.float32)
+                if use_gpu:
+                    # 方案B：关闭 successive_ids，分批使用 add_with_ids，显式管理全局ID
+                    ids = np.arange(current_idx, current_idx + batch_size, dtype=np.int64)
+                    # 将本批次按 GPU 分片拆分（按 id % ngpu 分配）
+                    for gi, shard in enumerate(shard_indices):
+                        mask = (ids % ngpu) == gi
+                        if not np.any(mask):
+                            continue
+                        shard.add_with_ids(vecs[mask], ids[mask])
+                else:
+                    index.add(vecs)
+
                 current_idx += batch_size
                 remaining -= batch_size
                 batch_count += 1
                 pbar.update(batch_size)
                 
-                # 清理内存
-                del vectors
+                del vectors, vecs
         
     else:
         # 向量数组，保持原有逻辑
@@ -354,17 +385,48 @@ def create_index(base_file_or_vectors, use_gpu=False, chunk_size=50000, gpu_memo
                 ngpu = n_available
             ngpu = max(1, min(ngpu, n_available))
 
-            print(f"使用 {ngpu} 个 GPU 创建索引 (维度: {dimension}) | shard={gpu_shard}")
-            index_cpu = faiss.IndexFlatL2(int(dimension))
-            reserve = int((base_vectors.shape[0] + ngpu - 1) // ngpu) if ngpu > 0 else None
-            index = _to_multi_gpus(index_cpu, ngpu=ngpu, shard=gpu_shard, reserve_vecs_per_gpu=reserve, device_ids=device_ids)
+            print(f"使用 {ngpu} 个 GPU 创建分片索引 (维度: {dimension})")
+            shard_indices: list[faiss.Index] = []
+            for i in range(ngpu):
+                dev = (device_ids[i] if device_ids and i < len(device_ids) else i)
+                res = faiss.StandardGpuResources()
+                cfg = None
+                try:
+                    cfg = faiss.GpuIndexFlatConfig()
+                    cfg.device = dev
+                except Exception:
+                    pass
+                try:
+                    gpu_idx = faiss.GpuIndexFlatL2(res, int(dimension), cfg) if cfg is not None else faiss.GpuIndexFlatL2(res, int(dimension))
+                except Exception:
+                    gpu_idx = faiss.GpuIndexFlatL2(res, int(dimension))
+                shard_indices.append(faiss.IndexIDMap(gpu_idx))
+            try:
+                index = faiss.IndexShards(int(dimension), False, False)
+            except Exception:
+                index = faiss.IndexShards(int(dimension))
+                try:
+                    index.successive_ids = False
+                except Exception:
+                    pass
+            for s in shard_indices:
+                index.add_shard(s)
         else:
             print(f"使用 CPU 创建索引 (维度: {dimension})")
             index = faiss.IndexFlatL2(int(dimension))
 
-        # 添加 base 向量到索引
+        # 添加 base 向量到分片索引（方案B：add_with_ids）
         print(f"添加 {len(base_vectors)} 个向量到索引...")
-        index.add(base_vectors.astype(np.float32))
+        if use_gpu:
+            ids = np.arange(0, base_vectors.shape[0], dtype=np.int64)
+            vecs = base_vectors.astype(np.float32)
+            for gi, shard in enumerate(shard_indices):
+                mask = (ids % ngpu) == gi
+                if not np.any(mask):
+                    continue
+                shard.add_with_ids(vecs[mask], ids[mask])
+        else:
+            index.add(base_vectors.astype(np.float32))
 
     return index
 
