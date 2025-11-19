@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class ScannIndexAdapter:
     """
     ScaNN 适配器，提供与 Faiss 相似的接口：train/add/search/search_with_params。
@@ -30,6 +29,7 @@ class ScannIndexAdapter:
         # Build timing cache (filled in finalize_build or lazy build on search)
         self._train_time = 0.0
         self._add_time = 0.0
+        self._count = 0
 
     # Faiss-like interface
     def train(self, xb: np.ndarray):
@@ -92,6 +92,8 @@ class ScannIndexAdapter:
                 (int(num_leaves),),
             ):
                 try:
+                    print("args", type(args))
+                    print("args", *args)
                     builder.tree(*args)
                     called_tree = True
                     break

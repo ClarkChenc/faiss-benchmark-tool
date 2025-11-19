@@ -22,10 +22,6 @@ def split_params(params, index_type):
         # HNSW build param controls graph construction breadth
         if "efConstruction" in params:
             build_params["efConstruction"] = params["efConstruction"]
-    if "IVF" in index_type:
-        # nlist is a build-time param if provided explicitly (index_type may already encode it)
-        if "nlist" in params:
-            build_params["nlist"] = params["nlist"]
     if "CAGRA" in index_type.upper():
         # CAGRA graph construction params (GPU-only index build)
         if "graph_degree" in params:

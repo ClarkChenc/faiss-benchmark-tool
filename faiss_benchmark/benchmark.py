@@ -195,7 +195,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         # Approximate per-query latency by dividing batch time evenly
         per_query_latency = elapsed / bs
         latencies.extend([per_query_latency] * bs)
-
+        
         processed += bs
 
     # Compute recall
