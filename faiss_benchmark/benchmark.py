@@ -10,22 +10,23 @@ def build_index(index, xb):
     index.train(xb)
     train_time = time.time() - t0
 
+    print(f"begin to build_index")
     t0 = time.time()
     index.add(xb)
-    add_time = time.time() - t0
-    mem_info = get_gpu_memory()
-    peak_used = mem_info["used_bytes"] if mem_info else None
-    total_bytes = mem_info["total_bytes"] if mem_info else None
     # 某些适配器（如 ScaNN）需要在构建后调用 finalize_build 完成索引创建
     if hasattr(index, "finalize_build"):
         try:
             fb = index.finalize_build()
-            # 将 finalize 阶段的构建时间并入 add_time（或以其为准）
-            add_time = (add_time or 0.0) + float(fb.get("add_time", 0.0))
-            peak_used = peak_used if peak_used is not None else fb.get("gpu_mem_peak_used_bytes")
-            total_bytes = total_bytes if total_bytes is not None else fb.get("gpu_mem_total_bytes")
-        except Exception:
-            pass
+        except Exception as e:
+            raise RuntimeError(f"finalize_build occurs error: {e}")
+            
+    add_time = time.time() - t0
+    print(f"build_index done, time used: {add_time:.4f}s")
+    mem_info = get_gpu_memory()
+    peak_used = mem_info["used_bytes"] if mem_info else None
+    total_bytes = mem_info["total_bytes"] if mem_info else None
+
+
     return {
         "train_time": train_time,
         "add_time": add_time,
@@ -154,6 +155,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         mb_size = int(params.get("latency_batch_size", mb_size))
 
     # Warm-up phase: run a number of queries to stabilize QPS/latency
+    print(f"query warm up")
     warmup = int(warmup_queries or 0)
     if warmup > 0:
         w_processed = 0
@@ -177,6 +179,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     processed = 0
 
     # Perform search in micro-batches, recording per-query latency
+    print(f"begin to search")
     while processed < n_queries:
         bs = min(mb_size, n_queries - processed)
         t0 = time.time()

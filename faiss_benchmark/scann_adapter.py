@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 class ScannIndexAdapter:
     """
@@ -31,6 +32,8 @@ class ScannIndexAdapter:
         self._add_time = 0.0
         self._count = 0
 
+        self._num_threads = int(os.environ["OMP_NUM_THREADS"])
+
     # Faiss-like interface
     def train(self, xb: np.ndarray):
         """ScaNN 无需训练，保持接口兼容。"""
@@ -53,143 +56,51 @@ class ScannIndexAdapter:
             self._base = np.concatenate([self._base, xb], axis=0)
         print("add vectors, now shape is: ", self._base.shape)
 
-    def _build_searcher(self):
+
+    def _build_searcher_v3(self):
         import scann
-        import inspect
+        builder = scann.scann_ops_pybind.builder(self._base, 50, 'squared_l2')
+        self._searcher = builder.tree(10000, 100).score_ah(2, 0.1).reorder(800).build()
+        self._searcher.set_num_threads(self._num_threads)
 
-        # 优先使用 pybind builder（在多版本环境中更稳定）
-        if hasattr(scann, "scann_ops_pybind") and hasattr(scann.scann_ops_pybind, "builder"):
-            builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, distance)
-        else:
-            builder = scann.ScannBuilder(self._base, num_neighbors=num_neighbors, distance_measure=distance)
-        # 记录可用方法，便于诊断
-        builder_methods = {m for m in dir(builder) if not m.startswith("_")}
+        if self._searcher is None:
+            raise(f"get none searcher")
 
-        # 树分区
-        num_leaves = self.build_params.get("num_leaves")
-        num_leaves_to_search = self.build_params.get("num_leaves_to_search")
-        if num_leaves_to_search is None:
-            ls = self.build_params.get("leaf_size")
-            if ls is not None:
-                try:
-                    num_leaves_to_search = int(ls)
-                except Exception:
-                    num_leaves_to_search = None
-        if num_leaves is not None and "tree" in builder_methods:
-            # 兼容不同签名：优先 (num_leaves, num_leaves_to_search)，回退仅 num_leaves
-            called_tree = False
-            for args in (
-                (int(num_leaves), int(num_leaves_to_search) if num_leaves_to_search is not None else max(1, int(num_leaves) // 20)),
-                (int(num_leaves),),
-            ):
-                try:
-                    print("args", type(args))
-                    print("args", *args)
-                    builder.tree(*args)
-                    called_tree = True
-                    break
-                except Exception:
-                    continue
+        #self._searcher = builder.autopilot().build()
+        print("config: ", builder.create_config())
 
-        # 选择打分方式（按可用方法优先级回退）
-        scored = False
-        scoring_chosen = None
-        # AH 打分：当前环境可能不兼容，默认跳过；如需启用可在后续版本加回
-        # 若未设置打分，则回退到 brute 家族或 autopilot
-        if not scored:
-            for method_name, chosen in (
-                ("score_brute_force", "score_brute_force"),
-                ("score_brute", "score_brute"),
-                ("autopilot", "autopilot"),
-            ):
-                if method_name in builder_methods:
-                    try:
-                        getattr(builder, method_name)()
-                        scored = True
-                        scoring_chosen = chosen
-                        break
-                    except Exception:
-                        continue
-
-        # 重排（需要在构建阶段启用，通常在设置打分之后）
-        # 重排：为避免不兼容，默认跳过；如需启用请在环境验证后开启
-
-        # 构建 searcher（若失败，尝试简化管道回退）
-        try:
-            self._searcher = builder.build()
-        except Exception:
-            # 回退：重新最小化构建并尝试 autopilot
-            if hasattr(scann, "scann_ops_pybind") and hasattr(scann.scann_ops_pybind, "builder"):
-                builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, distance)
-            else:
-                builder = scann.ScannBuilder(self._base, num_neighbors=num_neighbors, distance_measure=distance)
-            try:
-                if "autopilot" in {m for m in dir(builder) if not m.startswith("_")}:
-                    getattr(builder, "autopilot")()
-                self._searcher = builder.build()
-            except Exception as e2:
-                available = ",".join(sorted(builder_methods))
-                raise RuntimeError(
-                    f"ScaNN 构建失败：{e2}; scoring={scoring_chosen or 'none'}; available_methods={available}"
-                )
-
-
-    def _build_searcher_v2(self):
+    def _build_searcher_v4(self):
         import scann
-        import inspect
-
-        if self._base is None or self._base.shape[0] == 0:
-            raise RuntimeError("ScaNN 构建失败：基向量为空")
-
-        # 距离度量
-        distance = str(self.build_params.get("distance_measure", "dot_product")).lower()
-        if distance not in ("dot_product", "squared_l2"):
-            raise RuntimeError("measurement failed")
-
-        num_neighbors = int(self.build_params.get("num_neighbors", max(10, min(50, self._search_params.get("final_num_neighbors", 10)))))
-        builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, distance)
-        print("init builder with vectors:", self._base.shape, ", num_neighbors:", num_neighbors, ", distance:", distance)
-
-        # 记录可用方法，便于诊断
-        builder_methods = {m for m in dir(builder) if not m.startswith("_")}
-        print("builder_methods", builder_methods)
-
-        # 树分区
-        num_leaves = self.build_params.get("num_leaves")
-        num_leaves_to_search = self.build_params.get("num_leaves_to_search")
+        
+        num_neighbors = int(self.build_params.get("num_neighbors", 10))
+        num_leaves = int(self.build_params.get("num_leaves"))
+        num_leaves_to_search = int(self.build_params.get("num_leaves_to_search", num_leaves))
         if num_leaves is None or num_leaves_to_search is None:
-            raise RuntimeError("num_leaves or num_leaves_to_search is none")
+            raise RuntimeError(f"index_param.num_leaves or index_param.num_leaves_to_search not set")
 
-        builder.tree(num_leaves, num_leaves_to_search)
-        print("set leaves param: ", num_leaves, num_leaves_to_search)
+        ah_bits = int(self.build_params.get("ah_bits"))
+        ah_threshold = float(self.build_params.get("ah_threshold"))
+        if ah_bits is None or ah_threshold is None:
+            raise RuntimeError(f"index_param.ah_bits or index_param.ah_threshold not set")
 
-        dim_per_block = self.build_params.get("dim_per_block")
-        ah_threshold = self.build_params.get("ah_threshold")
-        if dim_per_block is None or ah_threshold is None:
-            raise RuntimeError("dim_per_block or ah_threshold is none")
-        builder.score_ah(dim_per_block, ah_threshold, hash_type="lut16", training_iterations=12)
-        print("set score_ah", dim_per_block, ah_threshold)
-
-        reorder_k = self.build_params.get("reorder_k")
+        reorder_k = int(self.build_params.get("reorder_k"))
         if reorder_k is None:
-            raise RuntimeError("reorder_k  is none")
-        builder.reorder(reorder_k)
-        print("set reorder_k", reorder_k)
-
-        #builder.autopilot()
-
-        print("config:", builder.create_config())
-
-        try:
-            self._searcher = builder.build()
-        except Exception as e:
-            print("searcher build failed", e)
+            raise RuntimeError(f"index_param.reorder_k not set")
+        
+        builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, "squared_l2")
+        self._searcher = (builder.tree(num_neighbors, num_leaves_to_search)
+                            .score_ah(ah_bits, ah_threshold).reorder(reorder_k).set_n_training_threads(self._num_threads)
+                            .build())
+        self._searcher.set_num_threads(self._num_threads)
+        if self._searcher is None:
+            raise RuntimeError(f"searcher init failed")
+        print(f"builder config: {builder.create_config()}")
 
     def finalize_build(self):
         """执行实际构建并返回构建时间信息。"""
         import time
         t0 = time.time()
-        self._build_searcher_v2()
+        self._build_searcher_v4()
         self._add_time = time.time() - t0
         return {
             "train_time": self._train_time,
@@ -203,8 +114,10 @@ class ScannIndexAdapter:
         final_k = int(self._search_params.get("final_num_neighbors", topk))
         # 保证最终返回 topk 形状
         request_k = max(final_k, int(topk))
+        if self._searcher is None:
+            print(f"_searcher is none ")
 
-        neighbors, distances = self._searcher.search_batched(xq, final_num_neighbors=request_k)
+        neighbors, distances = self._searcher.search_batched_parallel(xq, final_num_neighbors=request_k)
 
         # 截断或填充到 topk 形状
         if neighbors.shape[1] != topk:

@@ -231,7 +231,7 @@ def main():
                     index = cpu_index_loaded
                     print(f"Warning: failed to wrap CPU index into adapter: {e}")
             elif (not use_gpu and ("SCANN" not in index_type.upper()) and not ignore_cache and
-                  os.path.exists(cache_path) and os.path.exists(meta_path)):
+                os.path.exists(cache_path) and os.path.exists(meta_path)):
                 print(f"Loading index from cache: {cache_path}")
                 index = faiss.read_index(cache_path)
                 with open(meta_path, 'r') as f:
