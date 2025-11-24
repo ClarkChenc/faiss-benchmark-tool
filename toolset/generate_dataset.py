@@ -12,6 +12,7 @@ import numpy as np
 import faiss
 from tqdm import tqdm
 import sys
+import subprocess
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -594,89 +595,32 @@ def main():
             input_file, args.queries, output_prefix
         )
 
-        # 估算内存使用（基于实际数据量）
-        memory_info = estimate_memory_usage(
-            num_base,
-            args.queries,
-            dimension,
-            args.topk,
-            args.gpu,
-        )
-
-        print(f"\n内存使用估算 ({memory_info['device']}):")
-        print(f"  Base 向量: {memory_info['base_vectors']:.2f} GB")
-        print(f"  Query 向量: {memory_info['query_vectors']:.2f} GB")
-        print(f"  索引: {memory_info['index']:.2f} GB")
-        print(f"  结果: {memory_info['results']:.2f} GB")
-        print(f"  总计: {memory_info['total']:.2f} GB")
-
-        # 确定批处理大小
-        if args.batch_size == 0:
-            batch_size = suggest_batch_size(args.queries, args.memory_limit)
-            print(f"\n自动选择批处理大小: {batch_size}")
-        else:
-            batch_size = args.batch_size
-            print(f"\n使用指定批处理大小: {batch_size}")
-
         # 清理样本数据，释放内存
         del query_sample, base_sample
-        
-        # 创建索引（使用流式加载）
-        base_file = f"{output_prefix}_base.fvecs"
-        ngpu_val = None if args.ngpu == 0 else int(args.ngpu)
-        # Respect CUDA_VISIBLE_DEVICES if set
-        vis = os.environ.get('CUDA_VISIBLE_DEVICES')
-        device_ids = None
-        if vis:
-            try:
-                device_ids = [int(x) for x in vis.split(',') if x.strip()!='']
-            except Exception:
-                device_ids = None
-        index = create_index(base_file, args.gpu, gpu_memory_gb=args.gpu_memory, ngpu=ngpu_val, gpu_shard=bool(args.gpu_shard), device_ids=device_ids)
 
-        # 生成 groundtruth（使用流式加载 query 向量）
-        query_file = f"{output_prefix}_query.fvecs"
-        groundtruth_file = f"{output_prefix}_groundtruth.ivecs"
-        
-        print(f"\n正在生成 groundtruth...")
-        
-        # 流式处理 query 向量生成 groundtruth
-        all_groundtruth = []
-        current_idx = 0
-        remaining_queries = args.queries
-        
-        with tqdm(total=args.queries, desc="生成 groundtruth") as pbar:
-            while remaining_queries > 0:
-                current_batch_size = min(batch_size, remaining_queries)
-                
-                # 读取当前批次的 query 向量
-                query_batch = fvecs_read_range(query_file, current_idx, current_batch_size)
-                
-                # 搜索最近邻
-                _, batch_groundtruth = index.search(query_batch.astype(np.float32), args.topk)
-                all_groundtruth.append(batch_groundtruth)
-                
-                current_idx += current_batch_size
-                remaining_queries -= current_batch_size
-                pbar.update(current_batch_size)
-                
-                # 清理当前批次数据
-                del query_batch
-        
-        # 合并所有 groundtruth
-        groundtruth = np.vstack(all_groundtruth)
-        del all_groundtruth  # 清理中间数据
+        # 调用独立的 generate_groundtruth 脚本进行 groundtruth 生成
+        script_path = os.path.join(current_dir, "generate_groundtruth.py")
+        cmd = [sys.executable, script_path, "-i", data_base_dir, "-k", str(args.topk)]
+        if args.gpu:
+            cmd.append("--gpu")
+        # 透传 ngpu（0 表示脚本端使用所有可用 GPU）
+        cmd.extend(["--ngpu", str(args.ngpu)])
+        # 透传 shard 模式开关
+        if args.gpu_shard:
+            cmd.append("--gpu-shard")
+        else:
+            cmd.append("--no-gpu-shard")
+        # 透传批处理大小（0 表示脚本端自动选择）
+        cmd.extend(["--batch-size", str(args.batch_size)])
+        # 透传内存限制与 GPU 内存估算参数
+        cmd.extend(["--memory-limit", str(args.memory_limit)])
+        cmd.extend(["--gpu-memory", str(args.gpu_memory)])
 
-        # 保存 groundtruth
-        print(f"保存 groundtruth 到: {groundtruth_file}")
-        ivecs_write(groundtruth_file, groundtruth.astype(np.int32))
+        print("\n委托 generate_groundtruth 脚本生成 groundtruth...")
+        print(f"执行命令: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True)
 
-        print("\n数据集生成完成!")
-        print(f"Query 向量数量: {args.queries}")
-        print(f"Base 向量数量: {num_base}")
-        print(f"Groundtruth topk: {args.topk}")
-        print(f"使用设备: {'GPU' if args.gpu else 'CPU'}")
-        print(f"批处理大小: {batch_size}")
+        print("\n数据集生成完成 (groundtruth 由独立脚本生成)！")
 
     except Exception as e:
         print(f"错误: {e}")
