@@ -109,6 +109,7 @@ def main():
     except Exception as _thread_err:
         print(f"Warning: failed to set Faiss threads: {_thread_err}")
     print(f"Using {faiss.omp_get_max_threads()} threads for Faiss")
+    print(f"current env available cpu count: {os.cpu_count()}")
 
     dataset_name = config["dataset"]
     index_types = config["index_types"]
