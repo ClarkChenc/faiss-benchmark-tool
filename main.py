@@ -96,6 +96,7 @@ def main():
     from faiss_benchmark.benchmark import build_index, build_index_batch, search_index
     from faiss_benchmark.results import print_results
     from faiss_benchmark.utils import load_config
+    from faiss_benchmark.index_cache import load as cache_load, save as cache_save, ensure_dir as cache_ensure
 
     # Load full configuration
     config = load_config(args.config)
@@ -154,7 +155,7 @@ def main():
         return
 
     cache_dir = "index_cache"
-    os.makedirs(cache_dir, exist_ok=True)
+    cache_ensure(cache_dir)
 
     print(f"\nRunning benchmarks with {len(index_types)} index types...")
     print("=" * 50)
@@ -177,67 +178,27 @@ def main():
         else:
             build_params, search_params = split_params(legacy_params, index_type)
 
-        build_param_str = "_".join([f"{k}{v}" for k, v in build_params.items()])
-        gpu_str = "_gpu" if use_gpu else ""
-        # 正常缓存文件（依据 use_gpu 决定是否带 _gpu 后缀）
-        cache_filename = f"{dataset_name}_{index_type}_{build_param_str}{gpu_str}.index"
-        cache_path = os.path.join(cache_dir, cache_filename)
-        meta_path = os.path.join(cache_dir, cache_filename.replace('.index', '_meta.json'))
-        # 针对 CAGRA->HNSW 转换，始终以 CPU 形式缓存（不带 _gpu 后缀）
-        is_cagra = "CAGRA" in index_type.upper()
-        does_convert = ("->" in index_type)
-        cpu_cache_filename = f"{dataset_name}_{index_type}_{build_param_str}.index"
-        cpu_cache_path = os.path.join(cache_dir, cpu_cache_filename)
-        cpu_meta_path = os.path.join(cache_dir, cpu_cache_filename.replace('.index', '_meta.json'))
-
         # Per-index override: allow local ignore_cache to supersede global
         ignore_cache = bool(index_config.get("ignore_cache", ignore_cache_global))
         # Show effective params after split
         print(f"\nTesting index: {index_type} | build_param={build_params} | search_param={search_params} | use_gpu={use_gpu}")
 
         try:
-            # 优先覆盖：如果是 CAGRA 转换且存在 CPU 缓存，则直接加载 CPU 索引
-            if (is_cagra and does_convert and not ignore_cache and
-                os.path.exists(cpu_cache_path) and os.path.exists(cpu_meta_path)):
-                print(f"Loading converted CPU index from cache: {cpu_cache_path}")
-                cpu_index_loaded = faiss.read_index(cpu_cache_path)
-                with open(cpu_meta_path, 'r') as f:
-                    build_results = json.load(f)
-                # 清空历史 GPU 峰值内存指标，避免误导（当前运行直接使用 CPU 索引）
-                try:
-                    build_results['gpu_mem_peak_used_bytes'] = None
-                    build_results['gpu_mem_total_bytes'] = None
-                except Exception:
-                    pass
-                print(f"Using cached build times: train={build_results['train_time']:.3f}s, add={build_results['add_time']:.3f}s")
-                # 将 CPU 索引包裹在 CAGRA 适配器中，以便沿用适配器的检索与日志
-                try:
-                    from faiss_benchmark.cagra_adapter import CagraIndexAdapter
-                    convert_to_hnsw = None
-                    if "->" in index_type:
-                        try:
-                            _, convert_to_hnsw = index_type.split("->", 1)
-                            convert_to_hnsw = convert_to_hnsw.strip()
-                        except Exception:
-                            convert_to_hnsw = None
-                    adapter = CagraIndexAdapter(dimension=int(dimension), build_params=build_params, convert_to_hnsw=convert_to_hnsw)
-                    try:
-                        setattr(adapter, "_cpu_index", cpu_index_loaded)
-                        setattr(adapter, "_gpu_index", None)
-                    except Exception:
-                        pass
-                    index = adapter
-                    print("Using converted CPU index for search")
-                except Exception as e:
-                    index = cpu_index_loaded
-                    print(f"Warning: failed to wrap CPU index into adapter: {e}")
-            elif (not use_gpu and ("SCANN" not in index_type.upper()) and not ignore_cache and
-                os.path.exists(cache_path) and os.path.exists(meta_path)):
-                print(f"Loading index from cache: {cache_path}")
-                index = faiss.read_index(cache_path)
-                with open(meta_path, 'r') as f:
-                    build_results = json.load(f)
-                print(f"Using cached build times: train={build_results['train_time']:.3f}s, add={build_results['add_time']:.3f}s")
+            # Load from unified cache (CPU-only, ignore when GPU enabled or ignore_cache=true)
+            if not use_gpu and not ignore_cache:
+                cached_index, build_results = cache_load(cache_dir, dataset_name, index_type, build_params)
+                if cached_index is not None:
+                    print("Loading index from cache")
+                    index = cached_index
+                else:
+                    print("Building new index (cache miss)...")
+                    index = create_index(index_type, dimension, use_gpu=use_gpu, params=build_params)
+                    if use_batch_processing:
+                        build_results = build_index_batch(index, dataset_info, batch_config)
+                    else:
+                        build_results = build_index(index, xb)
+                    print("Saving CPU index to cache...")
+                    cache_save(cache_dir, dataset_name, index_type, build_params, index, build_results)
             else:
                 if use_gpu:
                     print("GPU mode is enabled. Index will be rebuilt and not cached.")
@@ -252,43 +213,16 @@ def main():
                     build_results = build_index_batch(index, dataset_info, batch_config)
                 else:
                     build_results = build_index(index, xb)
-                
-                # 保存 CPU 索引缓存（普通 CPU 索引）
-                if not use_gpu and not (is_cagra and does_convert):
-                    # ScaNN 不是 Faiss 索引，不能使用 faiss.write_index 序列化
-                    if "SCANN" in index_type.upper():
-                        print("SCANN index: skip Faiss serialization; will not cache index file.")
-                        try:
-                            with open(meta_path, 'w') as f:
-                                json.dump(build_results, f)
-                        except Exception:
-                            pass
-                    else:
-                        print(f"Saving index to cache: {cache_path}")
-                        faiss.write_index(index, cache_path)
-                        with open(meta_path, 'w') as f:
-                            json.dump(build_results, f)
-
-                # 保存 CAGRA 转换后的 CPU 索引缓存（即使 use_gpu=true 也保存）
-                if is_cagra and does_convert:
-                    try:
-                        # 对于适配器，尝试获取转换后的 CPU 索引
-                        cpu_index = None
-                        if hasattr(index, 'get_cpu_index'):
-                            cpu_index = index.get_cpu_index()
-                        # 如果不是适配器（比如直接从缓存加载的 CPU 索引），则 cpu_index 为空，跳过保存
-                        if cpu_index is not None:
-                            print(f"Saving converted CPU index to cache: {cpu_cache_path}")
-                            faiss.write_index(cpu_index, cpu_cache_path)
-                            with open(cpu_meta_path, 'w') as f:
-                                json.dump(build_results, f)
-                            # 保留适配器对象用于检索（不要替换为原始 CPU 索引）
-                            try:
-                                print("Using converted CPU index for search")
-                            except Exception:
-                                pass
-                    except Exception as e:
-                        print(f"Warning: failed to save converted CPU index: {e}")
+                # 保存 CPU 索引缓存：
+                # - 非 GPU 模式直接保存
+                # - 对于 CAGRA 适配器即使在 GPU 模式，也尝试保存其 CPU 转换索引
+                try:
+                    should_save = (not use_gpu) or (hasattr(index, 'get_cpu_index') and index.get_cpu_index() is not None)
+                except Exception:
+                    should_save = (not use_gpu)
+                if should_save:
+                    print("Saving CPU index to cache...")
+                    cache_save(cache_dir, dataset_name, index_type, build_params, index, build_results)
 
             # Apply search-time params during search (e.g., nprobe, efSearch). Latency micro-batch size from global config.
             # Warm-up queries help stabilize QPS and latency before timing.

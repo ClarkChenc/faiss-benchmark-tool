@@ -141,3 +141,36 @@ class ScannIndexAdapter:
     def search_with_params(self, xq: np.ndarray, topk: int, params: dict | None = None):
         self._search_params = params or {}
         return self.search(xq, topk)
+
+    # --- Cache/Serialization helpers ---
+    def save_to_cache(self, path: str):
+        """Save the built ScaNN searcher to the given path."""
+        if self._searcher is None:
+            raise RuntimeError("ScaNN searcher is not built; finalize_build() required before saving")
+        try:
+            import scann
+            # Prefer pybind save API when available
+            scann.scann_ops_pybind.save_searcher(self._searcher, path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to save ScaNN searcher: {e}")
+
+    @classmethod
+    def load_from_cache(cls, path: str, num_threads: int | None = None):
+        """Load a ScaNN searcher from cache path and wrap into adapter.
+
+        Dimension is not required for search; we set a placeholder.
+        """
+        try:
+            import scann
+            searcher = scann.scann_ops_pybind.load_searcher(path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load ScaNN searcher: {e}")
+
+        inst = cls(dimension=0, build_params={})
+        inst._searcher = searcher
+        inst._num_threads = int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1"))
+        try:
+            inst._searcher.set_num_threads(inst._num_threads)
+        except Exception:
+            pass
+        return inst
