@@ -90,12 +90,7 @@ def save(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
             if hasattr(index_object, 'save_to_cache'):
                 index_object.save_to_cache(idx_path)
             else:
-                # Best effort: try direct scann pybind API if exposed
-                import scann
-                try:
-                    scann.scann_ops_pybind.save_searcher(index_object, idx_path)  # type: ignore
-                except Exception as e:
-                    raise RuntimeError(f"ScaNN save failed: {e}")
+                raise RuntimeError(f"scann adapter not has save_to_cache method")
         except Exception as e:
             raise RuntimeError(f"Failed to save ScaNN index: {e}")
     else:

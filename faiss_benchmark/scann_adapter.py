@@ -1,5 +1,7 @@
 import numpy as np
 import os
+import scann
+import shutil
 
 class ScannIndexAdapter:
     """
@@ -58,7 +60,6 @@ class ScannIndexAdapter:
 
 
     def _build_searcher_v3(self):
-        import scann
         builder = scann.scann_ops_pybind.builder(self._base, 50, 'squared_l2')
         self._searcher = builder.tree(10000, 100).score_ah(2, 0.1).reorder(800).build()
         self._searcher.set_num_threads(self._num_threads)
@@ -69,9 +70,7 @@ class ScannIndexAdapter:
         #self._searcher = builder.autopilot().build()
         print("config: ", builder.create_config())
 
-    def _build_searcher_v4(self):
-        import scann
-        
+    def _build_searcher_v4(self):        
         num_neighbors = int(self.build_params.get("num_neighbors", 10))
         num_leaves = int(self.build_params.get("num_leaves"))
         num_leaves_to_search = int(self.build_params.get("num_leaves_to_search", num_leaves))
@@ -102,6 +101,7 @@ class ScannIndexAdapter:
         t0 = time.time()
         self._build_searcher_v4()
         self._add_time = time.time() - t0
+        self._base = None
         return {
             "train_time": self._train_time,
             "add_time": self._add_time,
@@ -143,26 +143,28 @@ class ScannIndexAdapter:
         return self.search(xq, topk)
 
     # --- Cache/Serialization helpers ---
-    def save_to_cache(self, path: str):
+    def save_to_cache(self, dir_path: str):
         """Save the built ScaNN searcher to the given path."""
         if self._searcher is None:
             raise RuntimeError("ScaNN searcher is not built; finalize_build() required before saving")
         try:
-            import scann
             # Prefer pybind save API when available
-            scann.scann_ops_pybind.save_searcher(self._searcher, path)
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
+            os.makedirs(dir_path, exist_ok=True)
+
+            self._searcher.serialize(dir_path)
         except Exception as e:
             raise RuntimeError(f"Failed to save ScaNN searcher: {e}")
 
     @classmethod
-    def load_from_cache(cls, path: str, num_threads: int | None = None):
+    def load_from_cache(cls, dir_path: str, num_threads: int | None = None):
         """Load a ScaNN searcher from cache path and wrap into adapter.
 
         Dimension is not required for search; we set a placeholder.
         """
         try:
-            import scann
-            searcher = scann.scann_ops_pybind.load_searcher(path)
+            searcher = scann.scann_ops_pybind.load_searcher(dir_path)
         except Exception as e:
             raise RuntimeError(f"Failed to load ScaNN searcher: {e}")
 
