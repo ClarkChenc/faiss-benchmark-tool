@@ -113,6 +113,7 @@ class HnswlibIndexAdapter:
         inst._capacity = int(max_elements)
         inst._added = int(max_elements)  # assume fully populated
         inst._num_threads = int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1"))
+
         try:
             inst._index.set_num_threads(inst._num_threads)
         except Exception:

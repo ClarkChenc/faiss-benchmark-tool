@@ -115,13 +115,13 @@ def main():
     # Global flag to ignore CPU cache and force rebuild
     ignore_cache_global = bool(config.get("ignore_cache", False))
 
-    # Set number of threads for Faiss
+    # Set number of threads
     num_threads = int(config.get("num_threads", num_threads_env))
     try:
         faiss.omp_set_num_threads(num_threads)
     except Exception as _thread_err:
         print(f"Warning: failed to set Faiss threads: {_thread_err}")
-    print(f"Using {faiss.omp_get_max_threads()} threads for Faiss")
+    print(f"Using {faiss.omp_get_max_threads()} threads for run")
     print(f"current env available cpu count: {os.cpu_count()}")
 
     dataset_name = config["dataset"]

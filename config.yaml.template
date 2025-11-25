@@ -59,6 +59,14 @@ index_types:
     search_param:
       efSearch: 16        # 搜索时的搜索宽度，影响精度和搜索速度
     # ignore_cache: true
+  
+  - index_type: "HNSWLIB"
+    index_param:
+      M: 16
+      efConstruction: 200
+      space: l2
+    search_param:
+      efSearch: 32
 
   # CAGRA 索引（GPU 图索引，使用 cuVS）
   - index_type: "CAGRA"
