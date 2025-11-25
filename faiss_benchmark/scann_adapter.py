@@ -87,13 +87,13 @@ class ScannIndexAdapter:
             raise RuntimeError(f"index_param.reorder_k not set")
         
         builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, "squared_l2")
-        self._searcher = (builder.tree(num_neighbors, num_leaves_to_search)
+        self._searcher = (builder.tree(num_leaves, num_leaves_to_search)
                             .score_ah(ah_bits, ah_threshold).reorder(reorder_k).set_n_training_threads(self._num_threads)
                             .build())
         self._searcher.set_num_threads(self._num_threads)
         if self._searcher is None:
             raise RuntimeError(f"searcher init failed")
-        print(f"builder config: {builder.create_config()}")
+        # print(f"builder config: {builder.create_config()}")
 
     def finalize_build(self):
         """执行实际构建并返回构建时间信息。"""
