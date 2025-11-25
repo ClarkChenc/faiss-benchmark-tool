@@ -7,6 +7,12 @@ from .gpu_mem import get_gpu_memory
 def build_index(index, xb):
     """Trains the index and adds vectors."""
     t0 = time.time()
+    # Allow adapters to pre-allocate capacity when possible
+    try:
+        if hasattr(index, "init_capacity"):
+            index.init_capacity(int(xb.shape[0]))
+    except Exception:
+        pass
     index.train(xb)
     train_time = time.time() - t0
 
@@ -52,6 +58,12 @@ def build_index_batch(index, dataset_info, batch_config):
     # 第一步：训练索引（使用较大的批次）
     print("正在训练索引...")
     t0 = time.time()
+    # Pre-allocate capacity for adapters that need it (e.g., hnswlib)
+    try:
+        if hasattr(index, "init_capacity"):
+            index.init_capacity(int(base_count))
+    except Exception:
+        pass
     
     # 加载训练数据（使用前 train_batch_size 个向量）
     train_vectors = load_base_vectors_batch(base_path, 0, train_batch_size, dimension)

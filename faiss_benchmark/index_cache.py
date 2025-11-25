@@ -15,12 +15,15 @@ def _paths(cache_dir: str, dataset: str, index_type: str, build_params: dict | N
     """Return index and meta paths based on index type and params.
 
     - CPU-only ScaNN uses `.scann` for index binary
+    - hnswlib CPU indices use `.hnswlib`
     - Faiss CPU indices use `.index`
     """
     bp = _normalize_build_params(build_params)
     base = f"{dataset}_{index_type}_{bp}" if bp else f"{dataset}_{index_type}"
     if "SCANN" in index_type.upper():
         idx = os.path.join(cache_dir, base + ".scann")
+    elif "HNSWLIB" in index_type.upper():
+        idx = os.path.join(cache_dir, base + ".hnswlib")
     else:
         idx = os.path.join(cache_dir, base + ".index")
     meta = os.path.join(cache_dir, base + "_meta.json")
@@ -52,6 +55,20 @@ def load(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
         try:
             from .scann_adapter import ScannIndexAdapter
             idx = ScannIndexAdapter.load_from_cache(idx_path)
+            return idx, meta
+        except Exception:
+            return None, None
+    if "HNSWLIB" in index_type.upper():
+        # Expect metadata to contain dimension, space, and max_elements
+        dim = int(meta.get("dimension", 0))
+        space = str(meta.get("space", "l2"))
+        max_elems = int(meta.get("num_elements", 0))
+        if dim <= 0 or max_elems <= 0:
+            return None, None
+        try:
+            from .hnswlib_adapter import HnswlibIndexAdapter
+            num_threads = os.environ.get("OMP_NUM_THREADS", "1")
+            idx = HnswlibIndexAdapter.load_from_cache(idx_path, dimension=dim, space=space, max_elements=max_elems, num_threads=int(num_threads))
             return idx, meta
         except Exception:
             return None, None
@@ -93,6 +110,15 @@ def save(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
                 raise RuntimeError(f"scann adapter not has save_to_cache method")
         except Exception as e:
             raise RuntimeError(f"Failed to save ScaNN index: {e}")
+    elif "HNSWLIB" in index_type.upper():
+        # hnswlib adapter must provide save_to_cache
+        try:
+            if hasattr(index_object, 'save_to_cache'):
+                index_object.save_to_cache(idx_path)
+            else:
+                raise RuntimeError("HNSWLIB index object does not support save_to_cache")
+        except Exception as e:
+            raise RuntimeError(f"Failed to save hnswlib index: {e}")
     else:
         # Faiss CPU index
         try:
@@ -102,8 +128,32 @@ def save(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
 
     # Save metadata
     try:
+        meta_out = dict(metadata or {})
+        # Enrich metadata for loaders that require extra info
+        if "HNSWLIB" in index_type.upper():
+            # ensure dimension and space and num_elements are present
+            try:
+                dim = getattr(index_object, 'dimension', None)
+            except Exception:
+                dim = None
+            try:
+                space = getattr(index_object, 'space', None)
+            except Exception:
+                space = None
+            # number of elements added
+            num_elems = None
+            try:
+                if hasattr(index_object, '_added'):
+                    num_elems = int(getattr(index_object, '_added'))
+            except Exception:
+                num_elems = None
+            if dim is not None:
+                meta_out['dimension'] = int(dim)
+            if space is not None:
+                meta_out['space'] = str(space)
+            if num_elems is not None:
+                meta_out['num_elements'] = int(num_elems)
         with open(meta_path, 'w') as f:
-            json.dump(metadata or {}, f)
+            json.dump(meta_out, f)
     except Exception:
         pass
-

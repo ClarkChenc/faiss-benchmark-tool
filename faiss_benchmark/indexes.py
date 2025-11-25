@@ -70,6 +70,12 @@ def _maybe_create_scann_adapter(dimension: int, params: dict | None):
     index_params = params or {}
     return ScannIndexAdapter(dimension=int(dimension), build_params=index_params)
 
+def _maybe_create_hnswlib_adapter(dimension: int, params: dict | None):
+    """Create hnswlib adapter for CPU HNSW implementation."""
+    from .hnswlib_adapter import HnswlibIndexAdapter
+    index_params = params or {}
+    return HnswlibIndexAdapter(dimension=int(dimension), build_params=index_params)
+
 def create_index(index_type: str, dimension: int, use_gpu: bool = False, params: dict = None):
     """Creates a Faiss index with build-time params, moves it to GPU if requested.
 
@@ -88,6 +94,10 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
         # Route to ScaNN adapter (CPU-only)
         if "SCANN" in index_type.upper():
             return _maybe_create_scann_adapter(dimension=dimension, params=params)
+
+        # Route to hnswlib adapter (CPU-only)
+        if "HNSWLIB" in index_type.upper():
+            return _maybe_create_hnswlib_adapter(dimension=dimension, params=params)
 
         index = faiss.index_factory(dimension, index_type)
 

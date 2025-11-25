@@ -90,7 +90,7 @@ cp config.yaml.template config.yaml
 - **`index_types`**: 一个包含多个索引配置的列表，每个配置包含：
   - **`index_type`**: Faiss 索引的类型，例如 `"Flat"`, `"IVF1024,Flat"`, `"HNSW32,Flat"`。
   - **`use_gpu`**: 是否为该索引使用 GPU（可选，优先于 `index_param` 中的同名字段）。
-  - **`index_param`**: 构建阶段参数，只影响索引结构；参与缓存键（例如 HNSW 的 `efConstruction`、IVF 的 `nlist`）。
+  - **`index_param`**: 构建阶段参数，只影响索引结构；参与缓存键（例如 HNSW 的 `efConstruction`、IVF 的 `nlist`、HNSWLIB 的 `M`/`efConstruction`/`space`）。
   - **`search_param`**: 搜索阶段参数，仅影响查询行为；不参与缓存键（例如 HNSW 的 `efSearch`、IVF 的 `nprobe`、通用的 `latency_batch_size`）。
   - 兼容说明：仍然支持旧的 **`params`** 字段，程序会自动拆分为上述两类参数。
 
@@ -100,9 +100,11 @@ cp config.yaml.template config.yaml
 
 - 构建参数（`index_param`）：影响索引结构与缓存键
   - HNSW：`efConstruction`
+  - HNSWLIB：`M`、`efConstruction`、`space`（`l2` 或 `cosine`）
   - IVF：`nlist`（如需覆盖；通常由 `index_type` 指定）
 - 搜索参数（`search_param`）：影响查询行为，不参与缓存键
   - HNSW：`efSearch`
+  - HNSWLIB：`efSearch`
   - IVF：`nprobe`
   - （无）
 
@@ -133,6 +135,14 @@ index_types:
       efConstruction: 40
     search_param:
       efSearch: 16
+
+  - index_type: "HNSWLIB"
+    index_param:
+      M: 16
+      efConstruction: 200
+      space: l2
+    search_param:
+      efSearch: 32
 ```
 
 - `dataset`: 要加载的数据集名称（不含扩展名）。程序会自动在 `data/` 目录下查找 `{dataset_name}_base.fvecs`、`{dataset_name}_query.fvecs` 和 `{dataset_name}_groundtruth.ivecs`。

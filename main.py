@@ -22,6 +22,14 @@ def split_params(params, index_type):
         # HNSW build param controls graph construction breadth
         if "efConstruction" in params:
             build_params["efConstruction"] = params["efConstruction"]
+    if "HNSWLIB" in index_type.upper():
+        # hnswlib build params: M, efConstruction, space
+        if "M" in params:
+            build_params["M"] = params["M"]
+        if "efConstruction" in params:
+            build_params["efConstruction"] = params["efConstruction"]
+        if "space" in params:
+            build_params["space"] = params["space"]
     if "CAGRA" in index_type.upper():
         # CAGRA graph construction params (GPU-only index build)
         if "graph_degree" in params:
@@ -61,6 +69,10 @@ def split_params(params, index_type):
         else:
             # Default unknown params to search-time to avoid cache churn
             search_params[k] = v
+
+    # hnswlib search param
+    if "HNSWLIB" in index_type.upper() and "efSearch" in params:
+        search_params["efSearch"] = params["efSearch"]
 
     return build_params, search_params
 
