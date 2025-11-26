@@ -4,6 +4,11 @@ import os
 import sys
 import math
 import numpy as np
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+
 from faiss_benchmark.utils import (
     get_fvecs_info, fvecs_read_range, fvecs_write_streaming
 )
