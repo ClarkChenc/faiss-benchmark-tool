@@ -87,7 +87,11 @@ class ScannIndexAdapter:
             raise RuntimeError(f"index_param.reorder_k not set")
         
         builder = scann.scann_ops_pybind.builder(self._base, num_neighbors, "squared_l2")
-        self._searcher = (builder.tree(num_leaves, num_leaves_to_search)
+        train_data_size = int(self._base.shape[0] * 0.1)
+        max_train_data_size = 1000000
+        if train_data_size > max_train_data_size:
+            train_data_size = max_train_data_size
+        self._searcher = (builder.tree(num_leaves, num_leaves_to_search, training_sample_size=train_data_size)
                             .score_ah(ah_bits, ah_threshold).reorder(reorder_k).set_n_training_threads(self._num_threads)
                             .build())
         self._searcher.set_num_threads(self._num_threads)
