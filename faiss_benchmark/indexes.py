@@ -76,6 +76,18 @@ def _maybe_create_hnswlib_adapter(dimension: int, params: dict | None):
     index_params = params or {}
     return HnswlibIndexAdapter(dimension=int(dimension), build_params=index_params)
 
+def _maybe_create_fastscan_ivfpq_adapter(index_type: str, dimension: int, params: dict | None):
+    """Create FastScan IVF-PQ adapter using faiss.IndexIVFPQFastScan (CPU)."""
+    from .fastscan_ivfpq_adapter import FastScanIVFPQAdapter
+    index_params = params or {}
+    return FastScanIVFPQAdapter(index_type=index_type, dimension=int(dimension), build_params=index_params)
+
+def _maybe_create_fastscan_adapter(index_type: str, dimension: int, params: dict | None, use_gpu: bool = False):
+    """Create FastScan adapter (CPU/GPU IVF-Flat fastscan path)."""
+    from .fastscan_adapter import FastScanIndexAdapter
+    index_params = params or {}
+    return FastScanIndexAdapter(index_type=index_type, dimension=int(dimension), build_params=index_params, use_gpu=bool(use_gpu))
+
 def create_index(index_type: str, dimension: int, use_gpu: bool = False, params: dict = None):
     """Creates a Faiss index with build-time params, moves it to GPU if requested.
 
@@ -98,6 +110,14 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
         # Route to hnswlib adapter (CPU-only)
         if "HNSWLIB" in index_type.upper():
             return _maybe_create_hnswlib_adapter(dimension=dimension, params=params)
+
+        # Route to IndexIVFPQFastScan adapter when requested
+        if "IVFPQFASTSCAN" in index_type.upper():
+            return _maybe_create_fastscan_ivfpq_adapter(index_type=index_type, dimension=dimension, params=params)
+
+        # Route to FastScan adapter when explicitly requested or using a placeholder type
+        if "FASTSCAN" in index_type.upper() or index_type.strip().upper() in ("IVF,PQ", "PQ"):
+            return _maybe_create_fastscan_adapter(index_type=index_type, dimension=dimension, params=params, use_gpu=use_gpu)
 
         index = faiss.index_factory(dimension, index_type)
 
