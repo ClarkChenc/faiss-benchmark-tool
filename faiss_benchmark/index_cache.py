@@ -120,9 +120,32 @@ def save(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
         except Exception as e:
             raise RuntimeError(f"Failed to save hnswlib index: {e}")
     else:
-        # Faiss CPU index
+        # Faiss CPU index or adapter wrapping a Faiss index
         try:
-            faiss.write_index(obj_to_save, idx_path)
+            # Prefer adapter's save_to_cache when available
+            if hasattr(index_object, 'save_to_cache'):
+                index_object.save_to_cache(idx_path)
+            else:
+                # Try to extract underlying index
+                underlying = None
+                try:
+                    if hasattr(index_object, 'get_cpu_index'):
+                        underlying = index_object.get_cpu_index()
+                    elif hasattr(index_object, '_index'):
+                        underlying = getattr(index_object, '_index')
+                except Exception:
+                    underlying = None
+                target = underlying or obj_to_save
+                # If target is a GPU index, convert to CPU before saving
+                try:
+                    target = faiss.index_gpu_to_cpu(target)
+                except Exception:
+                    pass
+                # Ensure we have a valid Faiss Index instance
+                try:
+                    faiss.write_index(target, idx_path)
+                except TypeError:
+                    raise RuntimeError("write_index 期望 Faiss Index 对象和字符串路径，请检查传入对象类型")
         except Exception as e:
             raise RuntimeError(f"Failed to save Faiss index: {e}")
 

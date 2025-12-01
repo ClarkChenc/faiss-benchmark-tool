@@ -108,6 +108,10 @@ class FastScanIVFPQAdapter:
         except Exception as e:
             raise RuntimeError(f"保存 FastScanIVFPQ 索引失败: {e}")
 
+    def get_cpu_index(self):
+        """Expose underlying Faiss CPU index for caching/routing."""
+        return self._index
+
     @classmethod
     def load_from_cache(cls, path: str, dimension: int, build_params: dict | None = None):
         try:
@@ -121,4 +125,3 @@ class FastScanIVFPQAdapter:
         except Exception:
             pass
         return inst
-
