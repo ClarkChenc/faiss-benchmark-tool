@@ -106,6 +106,30 @@ index_types:
     search_param:
       final_num_neighbors: 10         # 搜索阶段最终返回邻居数量（默认跟 topk）
 
+  # FastScan（CPU，4-bit PQ 快速扫描），参考：Faiss Wiki FastScan
+  # 1) 纯 PQ fast-scan（适用于小规模或演示）
+  - index_type: "PQ32x4fs"
+    index_param: {}
+    search_param: {}
+
+  # 2) IVF + PQ fast-scan（常用组合），可搭配重排（RFlat 或 Refine(SQ8)）
+  - index_type: "IVF1024,PQ32x4fs"
+    index_param: {}
+    search_param:
+      nprobe: 32
+
+  - index_type: "IVF1024,PQ32x4fs,RFlat"   # 用精确距离对候选重排
+    index_param: {}
+    search_param:
+      nprobe: 32
+      k_factor: 10            # 先取 k*k_factor 候选再重排
+
+  - index_type: "IVF1024,PQ32x4fs,Refine(SQ8)"  # 用 SQ8 重排，速度/准确性折中
+    index_param: {}
+    search_param:
+      nprobe: 32
+      k_factor: 10
+
 # 参数说明：
 # 
 # 批处理参数：

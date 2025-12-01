@@ -160,6 +160,13 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
             except Exception:
                 print(f"Failed to set nprobe={nprobe_val} via setattr")            # Fallback to ParameterSpace when attribute not available
 
+        # IndexRefine re-ranking width (k_factor)
+        if "k_factor" in params:
+            try:
+                setattr(index, "k_factor", int(params["k_factor"]))
+            except Exception:
+                pass
+
     # Micro-batch size for latency measurement (default: 32)
     mb_size = 32 if latency_batch_size is None else int(latency_batch_size)
     # Backward-compat: if not provided globally, allow legacy param lookup
