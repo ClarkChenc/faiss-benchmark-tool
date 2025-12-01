@@ -130,6 +130,19 @@ index_types:
       nprobe: 32
       k_factor: 10
 
+  # 3) 使用 IndexIVFPQFastScan 接口（CPU 适配器），参数直接映射到构造函数
+  - index_type: "IVF1024,IVFPQFastScan"
+    index_param:
+      metric: L2       # 或 IP
+      ivf_nlist: 1024  # 也可通过 index_type 的 IVF1024 指定
+      pq_m: 32         # PQ 子量化器数
+      pq_bits: 4       # FastScan 推荐 4-bit
+      fs_residual: false  # 是否使用残差 FastScan
+      refine: "RFlat"  # 可选：用精确距离进行重排（支持 k_factor）
+    search_param:
+      nprobe: 32
+      k_factor: 10
+
 # 参数说明：
 # 
 # 批处理参数：
