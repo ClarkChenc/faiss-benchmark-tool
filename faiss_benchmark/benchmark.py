@@ -1,6 +1,5 @@
 import time
 import numpy as np
-import faiss
 from .datasets import load_base_vectors_batch
 from .gpu_mem import get_gpu_memory
 
@@ -13,7 +12,11 @@ def build_index(index, xb):
             index.init_capacity(int(xb.shape[0]))
     except Exception:
         pass
-    index.train(xb)
+
+    train_size = min(int(xb.shape[0] * 0.1), 1000000)
+    train_data = xb[:train_size]
+
+    index.train(train_data)
     train_time = time.time() - t0
 
     print(f"begin to build_index")
@@ -156,6 +159,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
             # Prefer setattr for GPU indices (and many CPU variants)
             try:
                 if hasattr(index, "nprobe"):
+                    print(f"set nprob: {nprobe_val}")
                     setattr(index, "nprobe", nprobe_val)
             except Exception:
                 print(f"Failed to set nprobe={nprobe_val} via setattr")            # Fallback to ParameterSpace when attribute not available
@@ -163,7 +167,8 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         # IndexRefine re-ranking width (k_factor)
         if "k_factor" in params:
             try:
-                setattr(index, "k_factor", int(params["k_factor"]))
+                k_factor = int(params["k_factor"])
+                setattr(index, "k_factor",k_factor )
             except Exception:
                 pass
 
@@ -189,8 +194,6 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
             w_processed += w_bs
 
     n_queries = xq.shape[0]
-    I_all = np.empty((n_queries, topk), dtype=gt.dtype)
-    latencies = []
 
     total_search_time = 0.0
     mem_info_before = get_gpu_memory()
@@ -198,12 +201,24 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     processed = 0
 
     # Perform search in micro-batches, recording per-query latency
-    print(f"begin to search")
-    while processed < n_queries:
-        bs = min(mb_size, n_queries - processed)
+    repeat = 4
+    I_all = np.empty((n_queries*repeat, topk), dtype=gt.dtype)
+    latencies = []
+    print(f"begin to search, mb_size: {mb_size}, repeat {repeat}")
+    offset = 0
+    while processed < repeat*n_queries:
+        bs = min(mb_size, repeat*n_queries - processed)
         t0 = time.time()
         # Prefer adapter method that can accept search params when available
-        batch_queries = xq[processed:processed + bs]
+        if offset + bs <= n_queries:
+            batch_queries = xq[offset:offset + bs]
+            offset = offset + bs
+        else:
+            half0 = xq[offset:n_queries]
+            half1 = xq[0:bs - n_queries + offset]
+            offset = bs - n_queries + offset
+            batch_queries = np.concatenate((half0, half1))
+            
         if hasattr(index, "search_with_params"):
             D, I = index.search_with_params(batch_queries, topk, params)
         else:
@@ -222,12 +237,12 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
 
     # Compute recall
     n_ok = 0
-    for i in range(n_queries):
-        n_ok += len(np.intersect1d(I_all[i, :topk], gt[i, :topk]))
-    recall = n_ok / (n_queries * topk)
+    for i in range(n_queries*repeat):
+        n_ok += len(np.intersect1d(I_all[i, :topk], gt[i%n_queries, :topk]))
+    recall = n_ok / (n_queries * repeat * topk)
 
     # Throughput and latency metrics
-    qps = n_queries / total_search_time if total_search_time > 0 else 0.0
+    qps = n_queries * repeat / total_search_time if total_search_time > 0 else 0.0
     latencies_ms = np.array(latencies, dtype=np.float64) * 1000.0
     latency_avg_ms = float(latencies_ms.mean()) if latencies_ms.size > 0 else 0.0
     latency_p99_ms = float(np.percentile(latencies_ms, 99)) if latencies_ms.size > 0 else 0.0

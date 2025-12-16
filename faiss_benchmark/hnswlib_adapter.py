@@ -79,7 +79,7 @@ class HnswlibIndexAdapter:
             raise RuntimeError("hnswlib 适配器需要 float32 的 NumPy 数组")
         if xq.ndim != 2 or xq.shape[1] != self.dimension:
             raise RuntimeError(f"hnswlib search(): 维度不匹配，期望 {self.dimension}，得到 {xq.shape[1]}")
-        labels, distances = self._index.knn_query(xq, k=int(topk), num_threads=self._num_threads)
+        labels, distances = self._index.knn_query(data=xq, k=int(topk), num_threads=self._num_threads)
         I = labels.astype(np.int64)
         D = distances.astype(np.float32)
         return D, I
@@ -113,7 +113,6 @@ class HnswlibIndexAdapter:
         inst._capacity = int(max_elements)
         inst._added = int(max_elements)  # assume fully populated
         inst._num_threads = int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1"))
-
         try:
             inst._index.set_num_threads(inst._num_threads)
         except Exception:

@@ -61,11 +61,11 @@ class ScannIndexAdapter:
 
     def _build_searcher_v3(self):
         builder = scann.scann_ops_pybind.builder(self._base, 50, 'squared_l2')
-        self._searcher = builder.tree(10000, 100).score_ah(2, 0.1).reorder(800).build()
-        self._searcher.set_num_threads(self._num_threads)
-
+        self._searcher = builder.tree(10000, 100).score_ah(2, 0.1).reorder(800).set_n_training_threads(self._num_threads).build()
         if self._searcher is None:
             raise(f"get none searcher")
+        self._searcher.set_num_threads(self._num_threads)
+
 
         #self._searcher = builder.autopilot().build()
         print("config: ", builder.create_config())
@@ -91,13 +91,19 @@ class ScannIndexAdapter:
         max_train_data_size = 1000000
         if train_data_size > max_train_data_size:
             train_data_size = max_train_data_size
-        self._searcher = (builder.tree(num_leaves, num_leaves_to_search, training_sample_size=train_data_size)
+        
+        if num_leaves < 0 :
+            self._searcher = builder.autopilot().build()
+        else:
+            self._searcher = (builder.tree(num_leaves, num_leaves_to_search, training_sample_size=train_data_size)
                             .score_ah(ah_bits, ah_threshold).reorder(reorder_k).set_n_training_threads(self._num_threads)
                             .build())
-        self._searcher.set_num_threads(self._num_threads)
+                        
         if self._searcher is None:
             raise RuntimeError(f"searcher init failed")
-        # print(f"builder config: {builder.create_config()}")
+        self._searcher.set_num_threads(self._num_threads)
+        print ("set num threads", self._num_threads)
+        print(f"builder config: {builder.create_config()}")
 
     def finalize_build(self):
         """执行实际构建并返回构建时间信息。"""
@@ -121,7 +127,7 @@ class ScannIndexAdapter:
         if self._searcher is None:
             print(f"_searcher is none ")
 
-        neighbors, distances = self._searcher.search_batched_parallel(xq, final_num_neighbors=request_k)
+        neighbors, distances = self._searcher.search_batched_parallel(xq, request_k)
 
         # 截断或填充到 topk 形状
         if neighbors.shape[1] != topk:
@@ -156,8 +162,12 @@ class ScannIndexAdapter:
             if os.path.exists(dir_path):
                 shutil.rmtree(dir_path)
             os.makedirs(dir_path, exist_ok=True)
+            from importlib.metadata import version
+            if version("scann") == "1.4.2":
+                self._searcher.serialize(dir_path, relative_path=True)
+            else:
+                self._searcher.serialize(dir_path)
 
-            self._searcher.serialize(dir_path)
         except Exception as e:
             raise RuntimeError(f"Failed to save ScaNN searcher: {e}")
 
@@ -170,6 +180,7 @@ class ScannIndexAdapter:
         try:
             searcher = scann.scann_ops_pybind.load_searcher(dir_path)
         except Exception as e:
+            print(f"Failed to load ScaNN searcher: {e}")
             raise RuntimeError(f"Failed to load ScaNN searcher: {e}")
 
         inst = cls(dimension=0, build_params={})

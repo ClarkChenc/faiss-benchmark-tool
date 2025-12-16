@@ -2,7 +2,6 @@ import os
 import json
 import faiss
 
-
 def _normalize_build_params(build_params: dict | None) -> str:
     """Create a stable string from build params to form cache key."""
     if not build_params:
@@ -21,12 +20,15 @@ def _paths(cache_dir: str, dataset: str, index_type: str, build_params: dict | N
     bp = _normalize_build_params(build_params)
     base = f"{dataset}_{index_type}_{bp}" if bp else f"{dataset}_{index_type}"
     if "SCANN" in index_type.upper():
-        idx = os.path.join(cache_dir, base + ".scann")
+        from importlib.metadata import version
+        idx = os.path.join(cache_dir, base + ".scann_" + version("scann"))
+        meta = os.path.join(cache_dir, base + ".scann_" + version("scann") + "_meta.json")
     elif "HNSWLIB" in index_type.upper():
         idx = os.path.join(cache_dir, base + ".hnswlib")
+        meta = os.path.join(cache_dir, base + "_meta.json")
     else:
         idx = os.path.join(cache_dir, base + ".index")
-    meta = os.path.join(cache_dir, base + "_meta.json")
+        meta = os.path.join(cache_dir, base + "_meta.json")
     return idx, meta
 
 
@@ -72,6 +74,18 @@ def load(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
             return idx, meta
         except Exception:
             return None, None
+
+    if "FastScan" in index_type:
+        try:
+            from .fastscan_ivfpq_adapter import FastScanIVFPQAdapter
+            dim = int(meta.get("dimension", 0))
+
+            idx = FastScanIVFPQAdapter.load_from_cache(idx_path, dimension = dim, build_params=build_params)
+            return idx, meta
+        except Exception:
+            print(f"load fastscan cache failed")
+            return None, None
+
     # Faiss CPU index
     try:
         idx = faiss.read_index(idx_path)

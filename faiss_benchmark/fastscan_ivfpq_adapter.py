@@ -24,18 +24,10 @@ class FastScanIVFPQAdapter:
         self.index_type = str(index_type)
         self.dimension = int(dimension)
         self.build_params = build_params or {}
-
-        metric_name = str(self.build_params.get("metric", "L2")).upper()
-        self.metric = faiss.METRIC_L2 if metric_name == "L2" else faiss.METRIC_INNER_PRODUCT
+        self.metric = faiss.METRIC_L2
 
         # Parse nlist either from index_type (e.g., "IVF1024,IVFPQFastScan") or from params
-        nlist = int(self.build_params.get("ivf_nlist", self.build_params.get("nlist", 1024)))
-        m = re.search(r"IVF(\d+)", self.index_type, flags=re.IGNORECASE)
-        if m:
-            try:
-                nlist = int(m.group(1))
-            except Exception:
-                pass
+        nlist = int(self.build_params.get("nlist", 1024))
 
         pq_m = int(self.build_params.get("pq_m", 32))
         pq_bits = int(self.build_params.get("pq_bits", 4))
@@ -46,15 +38,6 @@ class FastScanIVFPQAdapter:
 
         # Construct IndexIVFPQFastScan
         self._index = faiss.IndexIVFPQFastScan(quantizer, self.dimension, nlist, pq_m, pq_bits, self.metric)
-
-        # Try to enable residual fastscan when requested
-        if fs_residual:
-            for attr in ("by_residual", "useResidual"):
-                try:
-                    setattr(self._index, attr, True)
-                    break
-                except Exception:
-                    continue
 
         # Optional refine using exact Flat re-ranking
         refine_opt = self.build_params.get("refine")
@@ -87,19 +70,17 @@ class FastScanIVFPQAdapter:
 
     def search_with_params(self, xq: np.ndarray, topk: int, params: dict | None = None):
         p = params or {}
-        # Apply nprobe if supported
-        if "nprobe" in p and p["nprobe"] is not None:
-            try:
-                setattr(self._index, "nprobe", int(p["nprobe"]))
-            except Exception:
-                pass
-        # Apply k_factor for IndexRefineFlat
-        if "k_factor" in p and p["k_factor"] is not None:
-            try:
-                setattr(self._index, "k_factor", int(p["k_factor"]))
-            except Exception:
-                pass
-        return self.search(xq, topk)
+
+        base_params = faiss.SearchParametersIVF()
+        base_params.nprobe = int(p["nprobe"])
+
+        refine_params = faiss.IndexRefineSearchParameters(k_factor=p["k_factor"])
+        refine_params.base_index_params = base_params
+
+
+        xq = np.asarray(xq, dtype=np.float32)
+        D, I = self._index.search(xq, int(topk), params=refine_params)
+        return D.astype(np.float32), I.astype(np.int64)
 
     # --- Cache helpers ---
     def save_to_cache(self, path: str):
@@ -120,8 +101,5 @@ class FastScanIVFPQAdapter:
             raise RuntimeError(f"加载 FastScanIVFPQ 索引失败: {e}")
         inst = cls(index_type="IVFPQFastScan", dimension=int(dimension), build_params=build_params or {})
         inst._index = idx
-        try:
-            inst.dimension = idx.d
-        except Exception:
-            pass
+
         return inst
