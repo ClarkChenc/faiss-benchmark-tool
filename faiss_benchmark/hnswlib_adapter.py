@@ -1,7 +1,8 @@
 import os
 import numpy as np
 import inspect
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 class HnswlibIndexAdapter:
     """
@@ -93,8 +94,37 @@ class HnswlibIndexAdapter:
                 pass
         return self.search(xq, topk)
 
+    def plot_histgram(self, data, top_percent, output_file):
+        counts = [item[1] for item in data]
+        plt.figure(figsize=(8, 5))
+        n, bins, patches = plt.hist(
+            counts,
+            bins=100,                     # 可调整：自动/指定 bin 数，或用 np.arange(min, max, step)
+            color='steelblue',
+            alpha=0.7,
+            edgecolor='white',
+            linewidth=1.2
+        )
 
-    def get_search_visit_counts(self):
+        # 添加细节
+        plt.xlabel('Count Value')
+        plt.ylabel('Frequency')
+        plt.title('Distribution of Counts', fontsize=14)
+        plt.grid(axis='y', linestyle='--', alpha=0.6)
+
+        # # 可选：在柱子上标注频次
+        # for i in range(len(patches)):
+        #     plt.text(patches[i].get_x() + patches[i].get_width() / 2,
+        #             patches[i].get_height() + max(n) * 0.01,
+        #             str(int(n[i])),
+        #             ha='center', va='bottom', fontweight='bold')
+
+        plt.tight_layout()
+
+        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        print(f"直方图已保存为: {output_file}")
+
+    def get_search_visit_counts(self, top_percent = 0.1, fig_save_path= "./output/stat.png"):
         """返回 (label, count) 列表，如果 hnswlib 暴露了该接口。
 
         需要你在本地编译的 hnswlib 中添加并暴露 C++ 方法：
@@ -102,14 +132,21 @@ class HnswlibIndexAdapter:
         - getSearchCountByLabel() -> std::vector<std::pair<labeltype, size_t>>
         """
         try:
-            if hasattr(self._index, "get_search_count_by_label"):
-                return list(self._index.get_search_count_by_label())
-            # 部分绑定可能使用驼峰命名
+            stat = []
             if hasattr(self._index, "getSearchCountByLabel"):
-                return list(self._index.getSearchCountByLabel())
+                stat = self._index.getSearchCountByLabel()
+                print(f"stat: {len(stat)}")
+                count = np.array([item[1] for item in stat])
+                count = np.sort(count)
+                print(f"count: {count}")
+
+                sum_count = np.sum(count)
+                print(f"sum_count: {sum_count}")
+                # self.plot_histgram(stat, top_percent, fig_save_path)
+
         except Exception:
-            return []
-        return []
+            return None
+        return None
 
     # --- Cache/Serialization helpers ---
     def save_to_cache(self, path: str):

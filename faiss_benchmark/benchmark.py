@@ -242,8 +242,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     recall = n_ok / (n_queries * repeat * topk)
 
     if hasattr(index, "get_search_visit_counts"):
-        counts = index.get_search_visit_counts()
-        print(f"hnsw stat: {counts}")
+        index.get_search_visit_counts()        
 
     # Throughput and latency metrics
     qps = n_queries * repeat / total_search_time if total_search_time > 0 else 0.0
