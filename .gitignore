@@ -3,6 +3,9 @@ config.yaml
 
 # 索引缓存目录
 index_cache/
+index/hnswlib/tmp
+
+data
 
 # Python 缓存文件
 __pycache__/

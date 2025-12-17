@@ -58,6 +58,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     mutable std::mutex label_lookup_lock;  // lock for label_lookup_
     std::unordered_map<labeltype, tableint> label_lookup_;
+    mutable std::vector<std::atomic<size_t>> search_count_;
 
     std::default_random_engine level_generator_;
     std::default_random_engine update_probability_generator_;
@@ -130,6 +131,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         cur_element_count = 0;
 
         visited_list_pool_ = std::unique_ptr<VisitedListPool>(new VisitedListPool(1, max_elements));
+        search_count_ = std::vector<std::atomic<size_t>>(max_elements_);
+        for (size_t i = 0; i < max_elements_; i++) search_count_[i].store(0);
 
         // initializations for special treatment of the first node
         enterpoint_node_ = -1;
@@ -338,6 +341,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         visited_array[ep_id] = visited_array_tag;
+        search_count_[ep_id].fetch_add(1, std::memory_order_relaxed);
 
         while (!candidate_set.empty()) {
             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
@@ -387,6 +391,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     char *currObj1 = (getDataByInternalId(candidate_id));
                     dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
+                    search_count_[candidate_id].fetch_add(1, std::memory_order_relaxed);
 
                     bool flag_consider_candidate;
                     if (!bare_bone_search && stop_condition) {
@@ -786,6 +791,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::vector<std::mutex>(MAX_LABEL_OPERATION_LOCKS).swap(label_op_locks_);
 
         visited_list_pool_.reset(new VisitedListPool(1, max_elements));
+
+        search_count_ = std::vector<std::atomic<size_t>>(max_elements);
+        for (size_t i = 0; i < max_elements; i++) search_count_[i].store(0);
 
         linkLists_ = (char **) malloc(sizeof(void *) * max_elements);
         if (linkLists_ == nullptr)
@@ -1264,6 +1272,31 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             maxlevel_ = curlevel;
         }
         return cur_c;
+    }
+
+    void clearSearchStat() {
+        for (size_t i = 0; i < search_count_.size(); i++) {
+            search_count_[i].store(0, std::memory_order_relaxed);
+        }
+    }
+
+    // 返回 (label, visit_count) 的列表，仅包含访问次数>0的条目
+    std::vector<std::pair<labeltype, size_t>> getSearchCountByLabel() const {
+        std::vector<std::pair<labeltype, size_t>> out;
+        if (cur_element_count == 0) return out;
+        out.reserve(cur_element_count);
+        // search_count_ 按内部节点 id 统计访问次数
+        for (tableint internal_id = 0; internal_id < cur_element_count; internal_id++) {
+            // 若存在删除标记则跳过
+            if (isMarkedDeleted(internal_id)) continue;
+            size_t c = 0;
+            if (internal_id < search_count_.size()) {
+                c = search_count_[internal_id].load(std::memory_order_relaxed);
+            }
+            if (c == 0) continue;
+            out.emplace_back(getExternalLabel(internal_id), c);
+        }
+        return out;
     }
 
 

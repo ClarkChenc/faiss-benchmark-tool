@@ -201,7 +201,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     processed = 0
 
     # Perform search in micro-batches, recording per-query latency
-    repeat = 4
+    repeat = 1
     I_all = np.empty((n_queries*repeat, topk), dtype=gt.dtype)
     latencies = []
     print(f"begin to search, mb_size: {mb_size}, repeat {repeat}")
@@ -240,6 +240,10 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     for i in range(n_queries*repeat):
         n_ok += len(np.intersect1d(I_all[i, :topk], gt[i%n_queries, :topk]))
     recall = n_ok / (n_queries * repeat * topk)
+
+    if hasattr(index, "get_search_visit_counts"):
+        counts = index.get_search_visit_counts()
+        print(f"hnsw stat: {counts}")
 
     # Throughput and latency metrics
     qps = n_queries * repeat / total_search_time if total_search_time > 0 else 0.0

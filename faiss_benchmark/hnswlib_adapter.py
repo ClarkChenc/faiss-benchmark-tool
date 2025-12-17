@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import inspect
 
 
 class HnswlibIndexAdapter:
@@ -91,6 +92,24 @@ class HnswlibIndexAdapter:
             except Exception:
                 pass
         return self.search(xq, topk)
+
+
+    def get_search_visit_counts(self):
+        """返回 (label, count) 列表，如果 hnswlib 暴露了该接口。
+
+        需要你在本地编译的 hnswlib 中添加并暴露 C++ 方法：
+        - clearSearchStat()
+        - getSearchCountByLabel() -> std::vector<std::pair<labeltype, size_t>>
+        """
+        try:
+            if hasattr(self._index, "get_search_count_by_label"):
+                return list(self._index.get_search_count_by_label())
+            # 部分绑定可能使用驼峰命名
+            if hasattr(self._index, "getSearchCountByLabel"):
+                return list(self._index.getSearchCountByLabel())
+        except Exception:
+            return []
+        return []
 
     # --- Cache/Serialization helpers ---
     def save_to_cache(self, path: str):
