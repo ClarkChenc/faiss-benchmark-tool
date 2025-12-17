@@ -720,6 +720,13 @@ class Index {
     size_t getCurrentCount() const {
         return appr_alg->cur_element_count;
     }
+
+    std::vector<std::pair<hnswlib::labeltype, size_t>> getSearchCountByLabel() const {
+        if (!appr_alg) {
+            return {};
+        }
+        return appr_alg->getSearchCountByLabel();
+    }
 };
 
 template<typename dist_t, typename data_t = float>
@@ -974,6 +981,7 @@ PYBIND11_PLUGIN(hnswlib) {
         .def_property_readonly("M",  [](const Index<float> & index) {
           return index.index_inited ? index.appr_alg->M_ : 0;
         })
+        .def("getSearchCountByLabel", &Index<float>::getSearchCountByLabel)
 
         .def(py::pickle(
             [](const Index<float> &ind) {  // __getstate__
