@@ -950,7 +950,6 @@ PYBIND11_PLUGIN(hnswlib) {
             py::arg("M") = 16,
             py::arg("ef_construction") = 200,
             py::arg("random_seed") = 100,
-            py::arg("")
             py::arg("allow_replace_deleted") = false)
         .def("knn_query",
             &Index<float>::knnQuery_return_numpy,
@@ -967,6 +966,7 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("get_items", &Index<float>::getData, py::arg("ids") = py::none(), py::arg("return_type") = "numpy")
         .def("get_ids_list", &Index<float>::getIdsList)
         .def("set_ef", &Index<float>::set_ef, py::arg("ef"))
+        .def("set_keep_indegree_rate", &Index<float>::set_keep_indegree_rate, py::arg("rate"))
         .def("set_num_threads", &Index<float>::set_num_threads, py::arg("num_threads"))
         .def("index_file_size", &Index<float>::indexFileSize)
         .def("save_index", &Index<float>::saveIndex, py::arg("path_to_index"))

@@ -192,6 +192,8 @@ def main():
 
         # Per-index override: allow local ignore_cache to supersede global
         ignore_cache = bool(index_config.get("ignore_cache", ignore_cache_global))
+        keep_indegree_rate = float(index_config.get("keep_indegree_rate", 1.0))
+        os.environ["GET_INDEGREE_RATE"] = str(keep_indegree_rate)
         # Show effective params after split
         print(f"\nTesting index: {index_type} | build_param={build_params} | search_param={search_params} | use_gpu={use_gpu}")
 

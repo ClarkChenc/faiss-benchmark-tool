@@ -1313,6 +1313,16 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::vector<std::pair<labeltype, size_t>> out;
         if (cur_element_count == 0) return out;
         
+        // 如果 indegree_map_ 不为空，直接使用 indegree_map_
+        if (!indegree_map_.empty()) {
+            out.reserve(indegree_map_.size());
+            for (auto const& [internal_id, count] : indegree_map_) {
+                if (isMarkedDeleted(internal_id)) continue;
+                out.emplace_back(getExternalLabel(internal_id), count);
+            }
+            return out;
+        }
+
         std::vector<size_t> in_degrees(cur_element_count, 0);
 
         for (tableint i = 0; i < cur_element_count; i++) {
