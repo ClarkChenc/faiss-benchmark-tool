@@ -1299,6 +1299,36 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return out;
     }
 
+    // 返回 (label, in_degree) 的列表，仅包含入度>0的条目 (level 0)
+    std::vector<std::pair<labeltype, size_t>> getInDegreeByLabel() const {
+        std::vector<std::pair<labeltype, size_t>> out;
+        if (cur_element_count == 0) return out;
+        
+        std::vector<size_t> in_degrees(cur_element_count, 0);
+
+        for (tableint i = 0; i < cur_element_count; i++) {
+             if (isMarkedDeleted(i)) continue;
+             unsigned int *data = get_linklist_at_level(i, 0);
+             int size = getListCount(data);
+             tableint *datal = (tableint *)(data + 1);
+             for (int j = 0; j < size; j++) {
+                 tableint neighbor = datal[j];
+                 if (neighbor < cur_element_count) {
+                     in_degrees[neighbor]++;
+                 }
+             }
+        }
+
+        out.reserve(cur_element_count);
+        for (tableint i = 0; i < cur_element_count; i++) {
+            if (isMarkedDeleted(i)) continue;
+            if (in_degrees[i] > 0) {
+                out.emplace_back(getExternalLabel(i), in_degrees[i]);
+            }
+        }
+        return out;
+    }
+
 
     std::priority_queue<std::pair<dist_t, labeltype >>
     searchKnn(const void *query_data, size_t k, BaseFilterFunctor* isIdAllowed = nullptr) const {

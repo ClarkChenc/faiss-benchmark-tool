@@ -148,6 +148,15 @@ class HnswlibIndexAdapter:
             return None
         return None
 
+    def get_in_degree_counts(self):
+        """返回 (label, in_degree) 列表，如果 hnswlib 暴露了该接口。"""
+        try:
+            if hasattr(self._index, "getInDegreeByLabel"):
+                return list(self._index.getInDegreeByLabel())
+        except Exception:
+            return []
+        return []
+
     # --- Cache/Serialization helpers ---
     def save_to_cache(self, path: str):
         if self._index is None:

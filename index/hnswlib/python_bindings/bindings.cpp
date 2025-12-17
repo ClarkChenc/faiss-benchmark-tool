@@ -727,6 +727,13 @@ class Index {
         }
         return appr_alg->getSearchCountByLabel();
     }
+
+    std::vector<std::pair<hnswlib::labeltype, size_t>> getInDegreeByLabel() const {
+        if (!appr_alg) {
+            return {};
+        }
+        return appr_alg->getInDegreeByLabel();
+    }
 };
 
 template<typename dist_t, typename data_t = float>
@@ -982,6 +989,7 @@ PYBIND11_PLUGIN(hnswlib) {
           return index.index_inited ? index.appr_alg->M_ : 0;
         })
         .def("getSearchCountByLabel", &Index<float>::getSearchCountByLabel)
+        .def("getInDegreeByLabel", &Index<float>::getInDegreeByLabel)
 
         .def(py::pickle(
             [](const Index<float> &ind) {  // __getstate__
