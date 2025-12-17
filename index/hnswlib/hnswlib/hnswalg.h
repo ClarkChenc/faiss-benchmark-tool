@@ -9,6 +9,8 @@
 #include <unordered_set>
 #include <list>
 #include <memory>
+#include <algorithm>
+#include <vector>
 
 namespace hnswlib {
 typedef unsigned int tableint;
@@ -59,6 +61,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     mutable std::mutex label_lookup_lock;  // lock for label_lookup_
     std::unordered_map<labeltype, tableint> label_lookup_;
     mutable std::vector<std::atomic<size_t>> search_count_;
+    mutable std::unordered_map<tableint, int> indegree_map_;
+    mutable std::atomic<int> hit_count_{0};
 
     std::default_random_engine level_generator_;
     std::default_random_engine update_probability_generator_;
@@ -70,7 +74,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     std::mutex deleted_elements_lock;  // lock for deleted_elements
     std::unordered_set<tableint> deleted_elements;  // contains internal ids of deleted elements
-
 
     HierarchicalNSW(SpaceInterface<dist_t> *s) {
     }
@@ -131,8 +134,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         cur_element_count = 0;
 
         visited_list_pool_ = std::unique_ptr<VisitedListPool>(new VisitedListPool(1, max_elements));
-        search_count_ = std::vector<std::atomic<size_t>>(max_elements_);
-        for (size_t i = 0; i < max_elements_; i++) search_count_[i].store(0);
 
         // initializations for special treatment of the first node
         enterpoint_node_ = -1;
@@ -321,6 +322,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
 
+        bool is_hit_indegree_map_ = false;
+
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
 
@@ -341,7 +344,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         visited_array[ep_id] = visited_array_tag;
-        search_count_[ep_id].fetch_add(1, std::memory_order_relaxed);
+        if (indegree_map_.count(ep_id) > 0) {
+            is_hit_indegree_map_ = true;
+        }
 
         while (!candidate_set.empty()) {
             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
@@ -388,10 +393,12 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 #endif
                 if (!(visited_array[candidate_id] == visited_array_tag)) {
                     visited_array[candidate_id] = visited_array_tag;
+                    if (indegree_map_.count(candidate_id) > 0) {
+                        is_hit_indegree_map_ = true;
+                    }
 
                     char *currObj1 = (getDataByInternalId(candidate_id));
                     dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
-                    search_count_[candidate_id].fetch_add(1, std::memory_order_relaxed);
 
                     bool flag_consider_candidate;
                     if (!bare_bone_search && stop_condition) {
@@ -441,6 +448,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         visited_list_pool_->releaseVisitedList(vl);
+        if (is_hit_indegree_map_) {
+            hit_count_.fetch_add(1, std::memory_order_relaxed);
+        }
+
         return top_candidates;
     }
 
@@ -1274,12 +1285,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return cur_c;
     }
 
-    void clearSearchStat() {
-        for (size_t i = 0; i < search_count_.size(); i++) {
-            search_count_[i].store(0, std::memory_order_relaxed);
-        }
-    }
-
     // 返回 (label, visit_count) 的列表，仅包含访问次数>0的条目
     std::vector<std::pair<labeltype, size_t>> getSearchCountByLabel() const {
         std::vector<std::pair<labeltype, size_t>> out;
@@ -1297,6 +1302,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             out.emplace_back(getExternalLabel(internal_id), c);
         }
         return out;
+    }
+
+    int getHitCount() const {
+        return hit_count_.load(std::memory_order_relaxed);
     }
 
     // 返回 (label, in_degree) 的列表，仅包含入度>0的条目 (level 0)
@@ -1327,6 +1336,46 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
         return out;
+    }
+
+
+    // 返回 internal_id -> in_degree (level 0)
+    void buildIndegreeMap(float keep_ratio = 1.0) const {
+        if (cur_element_count == 0) return;
+        
+        indegree_map_.clear();
+
+        std::vector<size_t> temp_counts(cur_element_count, 0);
+
+        for (tableint i = 0; i < cur_element_count; i++) {
+             if (isMarkedDeleted(i)) continue;
+             unsigned int *data = get_linklist_at_level(i, 0);
+             int size = getListCount(data);
+             tableint *datal = (tableint *)(data + 1);
+             for (int j = 0; j < size; j++) {
+                 tableint neighbor = datal[j];
+                 if (neighbor < cur_element_count) {
+                     temp_counts[neighbor]++;
+                 }
+             }
+        }
+
+        std::vector<std::pair<size_t, tableint>> count_id_pairs;
+        count_id_pairs.reserve(cur_element_count);
+        for(tableint i=0; i<cur_element_count; i++) {
+            if(temp_counts[i] > 0) {
+                count_id_pairs.push_back({temp_counts[i], i});
+            }
+        }
+
+        std::sort(count_id_pairs.begin(), count_id_pairs.end(), std::greater<std::pair<size_t, tableint>>());
+
+        size_t keep_count = (size_t)(count_id_pairs.size() * keep_ratio);
+        if (keep_count == 0 && !count_id_pairs.empty() && keep_ratio > 0) keep_count = 1;
+
+        for(size_t i=0; i<keep_count; i++) {
+            indegree_map_[count_id_pairs[i].second] = count_id_pairs[i].first;
+        }
     }
 
 

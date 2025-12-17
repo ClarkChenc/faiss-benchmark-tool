@@ -301,6 +301,7 @@ class Index {
             }
             cur_l += rows;
         }
+        appr_alg->buildIndegreeMap();
     }
 
 
@@ -734,6 +735,13 @@ class Index {
         }
         return appr_alg->getInDegreeByLabel();
     }
+
+    int getHitCount() const {
+        if (!appr_alg) {
+            return 0;
+        }
+        return appr_alg->getHitCount();
+    }
 };
 
 template<typename dist_t, typename data_t = float>
@@ -990,6 +998,7 @@ PYBIND11_PLUGIN(hnswlib) {
         })
         .def("getSearchCountByLabel", &Index<float>::getSearchCountByLabel)
         .def("getInDegreeByLabel", &Index<float>::getInDegreeByLabel)
+        .def("getHitCount", &Index<float>::getHitCount)
 
         .def(py::pickle(
             [](const Index<float> &ind) {  // __getstate__
