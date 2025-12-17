@@ -241,8 +241,8 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         n_ok += len(np.intersect1d(I_all[i, :topk], gt[i%n_queries, :topk]))
     recall = n_ok / (n_queries * repeat * topk)
 
-    if hasattr(index, "get_search_visit_counts"):
-        index.get_search_visit_counts()        
+    if hasattr(index, "get_stat"):
+        index.get_stat(processed)
 
     # Throughput and latency metrics
     qps = n_queries * repeat / total_search_time if total_search_time > 0 else 0.0

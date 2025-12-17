@@ -151,6 +151,7 @@ class Index {
     int dim;
     size_t seed;
     size_t default_ef;
+    float keep_indegree_rate_{0.1f};
 
     bool index_inited;
     bool ep_added;
@@ -213,6 +214,10 @@ class Index {
           appr_alg->ef_ = ef;
     }
 
+    void set_keep_indegree_rate(float rate){
+        keep_indegree_rate_ = rate;
+    }
+
 
     void set_num_threads(int num_threads) {
         this->num_threads_default = num_threads;
@@ -235,6 +240,8 @@ class Index {
       appr_alg = new hnswlib::HierarchicalNSW<dist_t>(l2space, path_to_index, false, max_elements, allow_replace_deleted);
       cur_l = appr_alg->cur_element_count;
       index_inited = true;
+
+      appr_alg->buildIndegreeMap(keep_indegree_rate_);
     }
 
 
@@ -301,7 +308,7 @@ class Index {
             }
             cur_l += rows;
         }
-        appr_alg->buildIndegreeMap();
+        appr_alg->buildIndegreeMap(keep_indegree_rate_);
     }
 
 
@@ -943,6 +950,7 @@ PYBIND11_PLUGIN(hnswlib) {
             py::arg("M") = 16,
             py::arg("ef_construction") = 200,
             py::arg("random_seed") = 100,
+            py::arg("")
             py::arg("allow_replace_deleted") = false)
         .def("knn_query",
             &Index<float>::knnQuery_return_numpy,

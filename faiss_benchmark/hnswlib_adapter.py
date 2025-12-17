@@ -26,6 +26,8 @@ class HnswlibIndexAdapter:
         self.space = str(bp.get("space", "l2"))
         self.M = int(bp.get("M", 16))
         self.efConstruction = int(bp.get("efConstruction", 200))
+        self.keepRate = float(os.environ.get("GET_INDEGREE_RATE", "1.0f"))
+
         # threads
         try:
             self._num_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
@@ -94,16 +96,17 @@ class HnswlibIndexAdapter:
                 pass
         return self.search(xq, topk)
 
-    def plot_histgram(self, data, top_percent, output_file):
+    def plot_histgram(self, data, output_file):
         counts = [item[1] for item in data]
         plt.figure(figsize=(8, 5))
         n, bins, patches = plt.hist(
             counts,
-            bins=100,                     # 可调整：自动/指定 bin 数，或用 np.arange(min, max, step)
-            color='steelblue',
-            alpha=0.7,
-            edgecolor='white',
-            linewidth=1.2
+            bins=32,                     # 可调整：自动/指定 bin 数，或用 np.arange(min, max, step)
+            range = (0, 100)
+            # color='steelblue',
+            # alpha=0.7,
+            # edgecolor='white',
+            # linewidth=1.2
         )
 
         # 添加细节
@@ -142,20 +145,33 @@ class HnswlibIndexAdapter:
 
                 sum_count = np.sum(count)
                 print(f"sum_count: {sum_count}")
-                # self.plot_histgram(stat, top_percent, fig_save_path)
 
         except Exception:
-            return None
-        return None
+            return
+        return
 
     def get_in_degree_counts(self):
         """返回 (label, in_degree) 列表，如果 hnswlib 暴露了该接口。"""
         try:
             if hasattr(self._index, "getInDegreeByLabel"):
-                return list(self._index.getInDegreeByLabel())
+                stat = self._index.getInDegreeByLabel()
         except Exception:
-            return []
-        return []
+            return
+        return
+
+    def get_hit_search_count(self, query_size):
+        try:
+            if hasattr(self._index, "getHitCount"):
+                hit_count = self._index.getHitCount()
+                hit_rate = float(hit_count) / float(query_size)
+
+                print(f"hit count: {hit_rate:.3%}")
+        except Exception:
+            return
+        return
+
+    def get_stat(self, query_size):
+        self.get_hit_search_count(query_size)
 
     # --- Cache/Serialization helpers ---
     def save_to_cache(self, path: str):
