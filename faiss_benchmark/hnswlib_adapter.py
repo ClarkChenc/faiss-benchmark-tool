@@ -215,19 +215,17 @@ class HnswlibSplitIndexAdapter:
         self.space = str(bp.get("space", "l2"))
         self.M = int(bp.get("M", 16))
         self.efConstruction = int(bp.get("efConstruction", 200))
-        _kir = os.environ.get("KEEP_INDEGREE_RATE", "1.0")
         try:
-            self.keep_indegree_rate = float(_kir)
+            self.keep_indegree_rate = float(os.environ.get("KEEP_INDEGREE_RATE", "1.0"))
         except Exception:
-            try:
-                self.keep_indegree_rate = float(str(_kir).replace("f", ""))
-            except Exception:
-                self.keep_indegree_rate = 1.0
+            self.keep_indegree_rate = 1
+                
         self.seg_num = int(bp.get("seg_num", 1))
         try:
             self._num_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
         except Exception:
             self._num_threads = 1
+            
         self._segments = []
         self._capacity_total = 0
         self._added_total = 0
