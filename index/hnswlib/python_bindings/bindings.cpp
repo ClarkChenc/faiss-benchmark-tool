@@ -215,6 +215,7 @@ class Index {
     }
 
     void set_keep_indegree_rate(float rate){
+        std::cerr << "set_keep_indegree_rate: " << rate << std::endl;
         keep_indegree_rate_ = rate;
     }
 

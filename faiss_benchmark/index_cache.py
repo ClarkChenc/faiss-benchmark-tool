@@ -72,7 +72,8 @@ def load(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
             num_threads = os.environ.get("OMP_NUM_THREADS", "1")
             idx = HnswlibIndexAdapter.load_from_cache(idx_path, dimension=dim, space=space, max_elements=max_elems, num_threads=int(num_threads))
             return idx, meta
-        except Exception:
+        except Exception as e:
+            print(f"{e}")
             return None, None
 
     if "FastScan" in index_type:

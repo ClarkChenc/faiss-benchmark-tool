@@ -26,7 +26,7 @@ class HnswlibIndexAdapter:
         self.space = str(bp.get("space", "l2"))
         self.M = int(bp.get("M", 16))
         self.efConstruction = int(bp.get("efConstruction", 200))
-        self.keep_indegree_rate = float(os.environ.get("KEEP_INDEGREE_RATE", "1.0f"))
+        self.keep_indegree_rate = float(os.environ.get("KEEP_INDEGREE_RATE", "1.0"))
 
         # threads
         try:
@@ -166,7 +166,9 @@ class HnswlibIndexAdapter:
                 hit_count = self._index.getHitCount()
                 hit_rate = float(hit_count) / float(query_size)
 
-                print(f"hit count: {hit_rate:.3%}")
+                print(f"hit_count: {hit_count}")
+                print(f"query_size: {query_size}")
+                print(f"hit_rate: {hit_rate:.3%}")
         except Exception:
             return
         return
@@ -188,6 +190,8 @@ class HnswlibIndexAdapter:
         import hnswlib
         inst = cls(dimension=dimension, build_params={"space": space})
         inst._index = hnswlib.Index(space=space, dim=int(dimension))
+        inst.keep_indegree_rate = float(os.environ.get("KEEP_INDEGREE_RATE", "1.0"))
+        inst._index.set_keep_indegree_rate(inst.keep_indegree_rate)
         try:
             inst._index.load_index(path, max_elements=int(max_elements))
 
@@ -197,11 +201,10 @@ class HnswlibIndexAdapter:
         inst._added = int(max_elements)  # assume fully populated
         inst._num_threads = int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1"))
         
-        inst.keep_indegree_rate = float(os.environ.get("KEEP_INDEGREE_RATE", "1.0f"))
-        inst._index.set_keep_indegree_rate(inst.keep_indegree_rate)
+
         try:
             inst._index.set_num_threads(inst._num_threads)
-        except Exception:
+        except Exception as e:
             pass
         return inst
 

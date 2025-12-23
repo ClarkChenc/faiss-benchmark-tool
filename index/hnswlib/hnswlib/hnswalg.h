@@ -1351,8 +1351,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     // 返回 internal_id -> in_degree (level 0)
     void buildIndegreeMap(float keep_ratio = 1.0) const {
-        if (cur_element_count == 0) return;
-        
+        // std::cerr << "buildIndegreeMap: " << keep_ratio << std::endl;
+        std::cerr << "\tkeep_ratio: " << keep_ratio << std::endl;
+        std::cerr << "\tcur_element_count: " << cur_element_count << std::endl;
+        if (cur_element_count == 0) return;        
         indegree_map_.clear();
 
         std::vector<size_t> temp_counts(cur_element_count, 0);
@@ -1386,6 +1388,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         for(size_t i=0; i<keep_count; i++) {
             indegree_map_[count_id_pairs[i].second] = count_id_pairs[i].first;
         }
+
+        std::cerr << "\tindegree_map count: " << indegree_map_.size() << std::endl;
     }
 
 

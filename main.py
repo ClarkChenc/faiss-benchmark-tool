@@ -155,6 +155,7 @@ def main():
             # 传统模式：加载全部数据到内存
             print("使用传统模式（全量加载）")
             xb, xq, gt = load_dataset(dataset_name)
+
             print(f"Dataset loaded successfully!")
             print(f"Base vectors: {xb.shape}")
             print(f"Query vectors: {xq.shape}")
@@ -193,7 +194,9 @@ def main():
         # Per-index override: allow local ignore_cache to supersede global
         ignore_cache = bool(index_config.get("ignore_cache", ignore_cache_global))
         keep_indegree_rate = float(index_config.get("keep_indegree_rate", 1.0))
-        os.environ["GET_INDEGREE_RATE"] = str(keep_indegree_rate)
+        os.environ["KEEP_INDEGREE_RATE"] = str(keep_indegree_rate)
+        print(f"KEEP_INDEGREE_RATE: {os.environ["KEEP_INDEGREE_RATE"]}")
+
         # Show effective params after split
         print(f"\nTesting index: {index_type} | build_param={build_params} | search_param={search_params} | use_gpu={use_gpu}")
 
