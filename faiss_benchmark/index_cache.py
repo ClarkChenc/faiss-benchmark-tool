@@ -60,6 +60,20 @@ def load(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
             return idx, meta
         except Exception:
             return None, None
+    if "HNSWLIB_SPLIT" in index_type.upper():
+        dim = int(meta.get("dimension", 0))
+        space = str(meta.get("space", "l2"))
+        seg_num = int(meta.get("seg_num", 0))
+        segment_sizes = list(meta.get("segment_sizes", []))
+        if dim <= 0 or seg_num <= 0 or len(segment_sizes) == 0:
+            return None, None
+        try:
+            from .hnswlib_adapter import HnswlibSplitIndexAdapter
+            num_threads = os.environ.get("OMP_NUM_THREADS", "1")
+            idx = HnswlibSplitIndexAdapter.load_from_cache(idx_path, dimension=dim, space=space, seg_num=seg_num, segment_sizes=segment_sizes, num_threads=int(num_threads))
+            return idx, meta
+        except Exception:
+            return None, None
     if "HNSWLIB" in index_type.upper():
         # Expect metadata to contain dimension, space, and max_elements
         dim = int(meta.get("dimension", 0))
@@ -168,7 +182,40 @@ def save(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
     try:
         meta_out = dict(metadata or {})
         # Enrich metadata for loaders that require extra info
-        if "HNSWLIB" in index_type.upper():
+        if "HNSWLIB_SPLIT" in index_type.upper():
+            try:
+                dim = getattr(index_object, 'dimension', None)
+            except Exception:
+                dim = None
+            try:
+                space = getattr(index_object, 'space', None)
+            except Exception:
+                space = None
+            num_elems = None
+            try:
+                if hasattr(index_object, '_added_total'):
+                    num_elems = int(getattr(index_object, '_added_total'))
+            except Exception:
+                num_elems = None
+            seg_num = None
+            seg_sizes = []
+            try:
+                if hasattr(index_object, '_segments'):
+                    seg_num = len(getattr(index_object, '_segments'))
+                    seg_sizes = [int(seg.get("added", 0)) for seg in getattr(index_object, '_segments')]
+            except Exception:
+                pass
+            if dim is not None:
+                meta_out['dimension'] = int(dim)
+            if space is not None:
+                meta_out['space'] = str(space)
+            if num_elems is not None:
+                meta_out['num_elements'] = int(num_elems)
+            if seg_num is not None and seg_num > 0:
+                meta_out['seg_num'] = int(seg_num)
+            if seg_sizes:
+                meta_out['segment_sizes'] = list(seg_sizes)
+        elif "HNSWLIB" in index_type.upper():
             # ensure dimension and space and num_elements are present
             try:
                 dim = getattr(index_object, 'dimension', None)

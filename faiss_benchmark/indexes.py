@@ -1,4 +1,7 @@
-import faiss
+try:
+    import faiss
+except Exception:
+    faiss = None
 
 def _is_cuda12_available() -> bool:
     """Detect whether CUDA 12 runtime is available.
@@ -76,6 +79,11 @@ def _maybe_create_hnswlib_adapter(dimension: int, params: dict | None):
     index_params = params or {}
     return HnswlibIndexAdapter(dimension=int(dimension), build_params=index_params)
 
+def _maybe_create_hnswlib_split_adapter(dimension: int, params: dict | None):
+    from .hnswlib_adapter import HnswlibSplitIndexAdapter
+    index_params = params or {}
+    return HnswlibSplitIndexAdapter(dimension=int(dimension), build_params=index_params)
+
 def _maybe_create_fastscan_ivfpq_adapter(index_type: str, dimension: int, params: dict | None):
     """Create FastScan IVF-PQ adapter using faiss.IndexIVFPQFastScan (CPU)."""
     from .fastscan_ivfpq_adapter import FastScanIVFPQAdapter
@@ -108,6 +116,8 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
             return _maybe_create_scann_adapter(dimension=dimension, params=params)
 
         # Route to hnswlib adapter (CPU-only)
+        if "HNSWLIB_SPLIT" in index_type.upper():
+            return _maybe_create_hnswlib_split_adapter(dimension=dimension, params=params)
         if "HNSWLIB" in index_type.upper():
             return _maybe_create_hnswlib_adapter(dimension=dimension, params=params)
 
@@ -119,6 +129,8 @@ def create_index(index_type: str, dimension: int, use_gpu: bool = False, params:
         if "FASTSCAN" in index_type.upper() or index_type.strip().upper() in ("IVF,PQ", "PQ"):
             return _maybe_create_fastscan_adapter(index_type=index_type, dimension=dimension, params=params, use_gpu=use_gpu)
 
+        if faiss is None:
+            raise RuntimeError("Faiss is not available for index_factory path")
         index = faiss.index_factory(dimension, index_type)
 
         index_params = params or {}

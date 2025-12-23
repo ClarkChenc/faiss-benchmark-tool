@@ -208,3 +208,150 @@ class HnswlibIndexAdapter:
             pass
         return inst
 
+class HnswlibSplitIndexAdapter:
+    def __init__(self, dimension: int, build_params: dict | None = None):
+        bp = build_params or {}
+        self.dimension = int(dimension)
+        self.space = str(bp.get("space", "l2"))
+        self.M = int(bp.get("M", 16))
+        self.efConstruction = int(bp.get("efConstruction", 200))
+        _kir = os.environ.get("KEEP_INDEGREE_RATE", "1.0")
+        try:
+            self.keep_indegree_rate = float(_kir)
+        except Exception:
+            try:
+                self.keep_indegree_rate = float(str(_kir).replace("f", ""))
+            except Exception:
+                self.keep_indegree_rate = 1.0
+        self.seg_num = int(bp.get("seg_num", 1))
+        try:
+            self._num_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
+        except Exception:
+            self._num_threads = 1
+        self._segments = []
+        self._capacity_total = 0
+        self._added_total = 0
+        class _HnswParamsProxy:
+            def __init__(self, owner):
+                self._owner = owner
+                self._efSearch = None
+            @property
+            def efSearch(self):
+                return self._efSearch
+            @efSearch.setter
+            def efSearch(self, v):
+                self._efSearch = int(v)
+                for seg in self._owner._segments:
+                    try:
+                        seg["index"].set_ef(int(v))
+                    except Exception:
+                        pass
+        self.hnsw = _HnswParamsProxy(self)
+
+    def init_capacity(self, max_elements: int):
+        if self._segments:
+            return
+        import hnswlib
+        max_elements = int(max_elements)
+        self._capacity_total = max_elements
+        seg_cap = (max_elements + self.seg_num - 1) // self.seg_num
+        for _ in range(self.seg_num):
+            idx = hnswlib.Index(space=self.space, dim=self.dimension)
+            idx.init_index(max_elements=int(seg_cap), ef_construction=self.efConstruction, M=self.M)
+            idx.set_keep_indegree_rate(self.keep_indegree_rate)
+            try:
+                idx.set_num_threads(self._num_threads)
+            except Exception:
+                pass
+            self._segments.append({"index": idx, "capacity": int(seg_cap), "added": 0})
+
+    def train(self, xb: np.ndarray):
+        return None
+
+    def add(self, xb: np.ndarray):
+        xb = np.asarray(xb, dtype=np.float32)
+        if xb.ndim != 2 or xb.shape[1] != self.dimension:
+            raise RuntimeError(f"hnswlib add(): 维度不匹配，期望 {self.dimension}，得到 {xb.shape[1]}")
+        if not self._segments:
+            self.init_capacity(int(xb.shape[0]))
+        if self._added_total + xb.shape[0] > self._capacity_total:
+            raise RuntimeError(f"hnswlib 索引容量不足: 当前总容量 {self._capacity_total}, 试图添加 {self._added_total + xb.shape[0]}")
+        labels = np.arange(self._added_total, self._added_total + xb.shape[0], dtype=np.int64)
+        start = 0
+        remain = xb.shape[0]
+        for seg in self._segments:
+            if remain <= 0:
+                break
+            can_add = min(remain, seg["capacity"] - seg["added"])
+            if can_add <= 0:
+                continue
+            xb_slice = xb[start:start+can_add]
+            lab_slice = labels[start:start+can_add]
+            seg["index"].add_items(xb_slice, lab_slice)
+            seg["added"] += int(can_add)
+            start += can_add
+            remain -= can_add
+        self._added_total += xb.shape[0]
+
+    def search(self, xq: np.ndarray, topk: int):
+        if not self._segments:
+            raise RuntimeError("hnswlib search(): 索引尚未构建")
+        xq = np.asarray(xq, dtype=np.float32)
+        if xq.ndim != 2 or xq.shape[1] != self.dimension:
+            raise RuntimeError(f"hnswlib search(): 维度不匹配，期望 {self.dimension}，得到 {xq.shape[1]}")
+        all_D = []
+        all_I = []
+        for seg in self._segments:
+            labels, distances = seg["index"].knn_query(data=xq, k=int(topk), num_threads=self._num_threads)
+            all_I.append(labels.astype(np.int64))
+            all_D.append(distances.astype(np.float32))
+        Dcat = np.concatenate(all_D, axis=1) if len(all_D) > 1 else all_D[0]
+        Icat = np.concatenate(all_I, axis=1) if len(all_I) > 1 else all_I[0]
+        k = int(topk)
+        if Dcat.shape[1] <= k:
+            order = np.argsort(Dcat, axis=1)
+            rows = np.arange(Dcat.shape[0])[:, None]
+            Dk = Dcat[rows, order[:, :k]]
+            Ik = Icat[rows, order[:, :k]]
+            return Dk, Ik
+        idx = np.argpartition(Dcat, kth=k-1, axis=1)[:, :k]
+        rows = np.arange(Dcat.shape[0])[:, None]
+        Dk = Dcat[rows, idx]
+        Ik = Icat[rows, idx]
+        ord2 = np.argsort(Dk, axis=1)
+        Dk_sorted = Dk[rows, ord2]
+        Ik_sorted = Ik[rows, ord2]
+        return Dk_sorted, Ik_sorted
+
+    def search_with_params(self, xq: np.ndarray, topk: int, params: dict | None = None):
+        if params and "efSearch" in params:
+            try:
+                self.hnsw.efSearch = int(params["efSearch"])
+            except Exception:
+                pass
+        return self.search(xq, topk)
+
+    def save_to_cache(self, path: str):
+        os.makedirs(path, exist_ok=True)
+        for i, seg in enumerate(self._segments):
+            fp = os.path.join(path, f"segment_{i}.hnswlib")
+            seg["index"].save_index(fp)
+
+    @classmethod
+    def load_from_cache(cls, dir_path: str, dimension: int, space: str, seg_num: int, segment_sizes: list[int], num_threads: int | None = None):
+        import hnswlib
+        inst = cls(dimension=dimension, build_params={"space": space, "seg_num": int(seg_num)})
+        inst._segments = []
+        inst._capacity_total = int(sum(segment_sizes))
+        inst._added_total = int(sum(segment_sizes))
+        for i in range(int(seg_num)):
+            fp = os.path.join(dir_path, f"segment_{i}.hnswlib")
+            cap = int(segment_sizes[i]) if i < len(segment_sizes) else 0
+            idx = hnswlib.Index(space=space, dim=int(dimension))
+            idx.load_index(fp, max_elements=cap)
+            try:
+                idx.set_num_threads(int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1")))
+            except Exception:
+                pass
+            inst._segments.append({"index": idx, "capacity": cap, "added": cap})
+        return inst
