@@ -78,7 +78,8 @@ def load(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
                 seg_num=seg_num, 
                 segment_sizes=segment_sizes, 
                 num_threads=int(num_threads),
-                is_merge=is_merge
+                is_merge=is_merge,
+                build_params=build_params
             )
             return idx, meta
         except Exception:
