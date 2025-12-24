@@ -87,8 +87,8 @@ class BuildExt(build_ext):
         c_opts['unix'].remove(compiler_flag_native)
 
     if sys.platform == 'darwin':
-        c_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7']
-        link_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7']
+        c_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7', '-Xpreprocessor', '-fopenmp']
+        link_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7', '-lomp']
     else:
         c_opts['unix'].append("-fopenmp")
         link_opts['unix'].extend(['-fopenmp', '-pthread'])

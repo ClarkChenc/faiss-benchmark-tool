@@ -4,6 +4,10 @@
 // We assume this file is included in bindings.cpp after Index class definition
 // so we don't need to include hnswlib.h again or define Index class.
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 template<typename dist_t>
 Index<dist_t>* merge_indices(
     const std::vector<std::string>& filenames,
@@ -22,14 +26,16 @@ Index<dist_t>* merge_indices(
         // We assume 0 for max_elements works for loading (uses file header)
         hnswlib::HierarchicalNSW<dist_t> part_alg(merged_index->l2space, path, false, 0);
         
-        // Iterate over all elements
-        // label_lookup_ is a map<labeltype, tableint>
+        std::vector<hnswlib::labeltype> labels;
+        labels.reserve(part_alg.label_lookup_.size());
         for (const auto& kv : part_alg.label_lookup_) {
-            hnswlib::labeltype label = kv.first;
-            // getDataByLabel returns std::vector<dist_t>
+            labels.push_back(kv.first);
+        }
+
+        #pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < labels.size(); ++i) {
+            const hnswlib::labeltype label = labels[i];
             std::vector<dist_t> data = part_alg.template getDataByLabel<dist_t>(label);
-            
-            // Add to merged index
             merged_index->appr_alg->addPoint((void*)data.data(), label);
         }
     }
