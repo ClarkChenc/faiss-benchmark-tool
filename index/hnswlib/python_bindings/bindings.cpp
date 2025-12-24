@@ -1056,15 +1056,16 @@ PYBIND11_PLUGIN(hnswlib) {
         .def_readwrite("num_threads", &BFIndex<float>::num_threads_default);
 
         m.def("merge_indices", &merge_indices<float>, 
-            py::arg("filenames"),
-            py::arg("space_name"),
-            py::arg("dim"),
-            py::arg("total_max_elements"),
-            py::arg("M") = 16,
-            py::arg("ef_construction") = 200,
-            py::arg("random_seed") = 100,
-            py::arg("ratio") = 1.0f
-        );
+        py::arg("filenames"),
+        py::arg("space_name"),
+        py::arg("dim"),
+        py::arg("total_max_elements"),
+        py::arg("M") = 16,
+        py::arg("ef_construction") = 200,
+        py::arg("random_seed") = 100,
+        py::arg("ratio") = 1.0f,
+        py::arg("keep_pruned_connections") = 1.0f
+    );
 
         return m.ptr();
 }

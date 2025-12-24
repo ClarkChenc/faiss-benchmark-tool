@@ -373,7 +373,8 @@ class HnswlibSplitIndexAdapter:
                     M=self.M, 
                     ef_construction=self.efConstruction,
                     random_seed=100,
-                    ratio=self.merge_ratio
+                    ratio=self.merge_ratio,
+                    keep_pruned_connections=self.keep_indegree_rate
                 )
                 merged_idx.save_index(merged_path)
                 self._merged_index = merged_idx

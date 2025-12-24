@@ -24,7 +24,8 @@ Index<dist_t>* merge_indices(
     size_t M,
     size_t efConstruction,
     size_t random_seed,
-    float ratio = 1.0f
+    float ratio = 1.0f,
+    float keep_pruned_connections = 1.0f
 ) {
     // 1. Initialize Merged Index Wrapper
     Index<dist_t>* merged_index_wrapper = new Index<dist_t>(space_name, dim);
@@ -45,7 +46,7 @@ Index<dist_t>* merge_indices(
                 merged_index_wrapper->l2space, path, false, 0
             );
             // Build indegree map for refinement candidates (keep all nodes with indegree > 0)
-            seg->buildIndegreeMap(1.0f);
+            seg->buildIndegreeMap(keep_pruned_connections);
             segments.push_back(seg);
             offsets.push_back(current_offset);
             current_offset += seg->cur_element_count;
