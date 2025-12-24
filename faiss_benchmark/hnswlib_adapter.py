@@ -227,6 +227,7 @@ class HnswlibSplitIndexAdapter:
                 
         self.seg_num = int(bp.get("seg_num", 1))
         self.is_merge = bool(bp.get("is_merge", False))
+        self.merge_ratio = float(bp.get("merge_ratio", 1.0))
         try:
             self._num_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
         except Exception:
@@ -370,7 +371,9 @@ class HnswlibSplitIndexAdapter:
                     self.dimension, 
                     self._capacity_total, 
                     self.M, 
-                    self.efConstruction
+                    self.efConstruction,
+                    100, # random_seed
+                    self.merge_ratio
                 )
                 merged_idx.save_index(merged_path)
                 self._merged_index = merged_idx
@@ -388,6 +391,7 @@ class HnswlibSplitIndexAdapter:
             inst._added_total = int(sum(segment_sizes))
             
             idx = hnswlib.Index(space=space, dim=int(dimension))
+            idx.set_keep_indegree_rate(inst.keep_indegree_rate)
             idx.load_index(merged_path, max_elements=inst._capacity_total)
             try:
                 idx.set_num_threads(int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1")))
@@ -403,6 +407,7 @@ class HnswlibSplitIndexAdapter:
             fp = os.path.join(dir_path, f"segment_{i}.hnswlib")
             cap = int(segment_sizes[i]) if i < len(segment_sizes) else 0
             idx = hnswlib.Index(space=space, dim=int(dimension))
+            idx.set_keep_indegree_rate(inst.keep_indegree_rate)
             idx.load_index(fp, max_elements=cap)
             try:
                 idx.set_num_threads(int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1")))

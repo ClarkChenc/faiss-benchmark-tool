@@ -1062,7 +1062,8 @@ PYBIND11_PLUGIN(hnswlib) {
             py::arg("total_max_elements"),
             py::arg("M") = 16,
             py::arg("ef_construction") = 200,
-            py::arg("random_seed") = 100
+            py::arg("random_seed") = 100,
+            py::arg("ratio") = 1.0f
         );
 
         return m.ptr();
