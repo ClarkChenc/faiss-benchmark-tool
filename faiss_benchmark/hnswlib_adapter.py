@@ -366,14 +366,14 @@ class HnswlibSplitIndexAdapter:
             try:
                 # Merge indices
                 merged_idx = hnswlib.merge_indices(
-                    seg_paths, 
-                    self.space, 
-                    self.dimension, 
-                    self._capacity_total, 
-                    self.M, 
-                    self.efConstruction,
-                    100, # random_seed
-                    self.merge_ratio
+                    filenames=seg_paths, 
+                    space_name=self.space, 
+                    dim=self.dimension, 
+                    total_max_elements=self._capacity_total, 
+                    M=self.M, 
+                    ef_construction=self.efConstruction,
+                    random_seed=100,
+                    ratio=self.merge_ratio
                 )
                 merged_idx.save_index(merged_path)
                 self._merged_index = merged_idx
