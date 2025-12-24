@@ -25,13 +25,16 @@ Index<dist_t>* merge_indices(
     for (const auto& path : filenames) {
         // Load the split index
         // We assume 0 for max_elements works for loading (uses file header)
+        std::cerr << "start to merge index: " << path << std::endl;
+
         hnswlib::HierarchicalNSW<dist_t> part_alg(merged_index->l2space, path, false, 0);
-        
         std::vector<hnswlib::labeltype> labels;
         labels.reserve(part_alg.label_lookup_.size());
         for (const auto& kv : part_alg.label_lookup_) {
             labels.push_back(kv.first);
         }
+
+        std::cerr << "index size: " << labels.size() << std::endl;
 
         #pragma omp parallel for schedule(static)
         for (size_t i = 0; i < labels.size(); ++i) {
