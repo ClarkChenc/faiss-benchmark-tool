@@ -89,6 +89,14 @@ class BuildExt(build_ext):
     if sys.platform == 'darwin':
         c_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7', '-Xpreprocessor', '-fopenmp']
         link_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7', '-lomp']
+        libomp_prefixes = ['/opt/homebrew/opt/libomp', '/usr/local/opt/libomp']
+        for p in libomp_prefixes:
+            inc = os.path.join(p, 'include')
+            lib = os.path.join(p, 'lib')
+            if os.path.exists(inc):
+                include_dirs.append(inc)
+            if os.path.exists(lib):
+                link_opts['unix'].append(f'-L{lib}')
     else:
         c_opts['unix'].append("-fopenmp")
         link_opts['unix'].extend(['-fopenmp', '-pthread'])

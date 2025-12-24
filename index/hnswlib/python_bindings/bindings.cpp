@@ -6,6 +6,9 @@
 #include "hnswlib.h"
 #include <thread>
 #include <atomic>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include <stdlib.h>
 #include <assert.h>
 
@@ -21,10 +24,27 @@ using namespace pybind11::literals;  // needed to bring in _a literal
  */
 template<class Function>
 inline void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn) {
+#ifdef _OPENMP
+    if (numThreads <= 0) {
+        numThreads = omp_get_max_threads();
+    }
+    size_t N = end - start;
+#pragma omp parallel num_threads(numThreads)
+    {
+        size_t threadId = 0;
+#ifdef _OPENMP
+        threadId = (size_t)omp_get_thread_num();
+#endif
+#pragma omp for schedule(static)
+        for (size_t i = 0; i < N; ++i) {
+            size_t id = start + i;
+            fn(id, threadId);
+        }
+    }
+#else
     if (numThreads <= 0) {
         numThreads = std::thread::hardware_concurrency();
     }
-
     if (numThreads == 1) {
         for (size_t id = start; id < end; id++) {
             fn(id, 0);
@@ -32,32 +52,20 @@ inline void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn
     } else {
         std::vector<std::thread> threads;
         std::atomic<size_t> current(start);
-
-        // keep track of exceptions in threads
-        // https://stackoverflow.com/a/32428427/1713196
         std::exception_ptr lastException = nullptr;
         std::mutex lastExceptMutex;
-
         for (size_t threadId = 0; threadId < numThreads; ++threadId) {
             threads.push_back(std::thread([&, threadId] {
                 while (true) {
                     size_t id = current.fetch_add(1);
-
                     if (id >= end) {
                         break;
                     }
-
                     try {
                         fn(id, threadId);
                     } catch (...) {
                         std::unique_lock<std::mutex> lastExcepLock(lastExceptMutex);
                         lastException = std::current_exception();
-                        /*
-                         * This will work even when current is the largest value that
-                         * size_t can fit, because fetch_add returns the previous value
-                         * before the increment (what will result in overflow
-                         * and produce 0 instead of current + 1).
-                         */
                         current = end;
                         break;
                     }
@@ -71,6 +79,7 @@ inline void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn
             std::rethrow_exception(lastException);
         }
     }
+#endif
 }
 
 

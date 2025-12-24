@@ -8,6 +8,7 @@
 #include <omp.h>
 #endif
 
+
 template<typename dist_t>
 Index<dist_t>* merge_indices(
     const std::vector<std::string>& filenames,
