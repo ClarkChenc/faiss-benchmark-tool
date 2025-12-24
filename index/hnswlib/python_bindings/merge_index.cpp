@@ -148,90 +148,163 @@ Index<dist_t>* merge_indices(
         }
     }
 
-    // 5. Refinement (Layer 0)
-    std::vector<hnswlib::tableint> candidate_set;
-    for (size_t i = 0; i < segments.size(); ++i) {
-        size_t offset = offsets[i];
-        for (const auto& kv : segments[i]->indegree_map_) {
-             candidate_set.push_back(kv.first + offset);
-        }
-    }
+    // 5. Refinement
+    if (ratio > 0) {
+        // Refine Layers > 0
+        for (int level = max_level; level >= 1; --level) {
+             std::vector<hnswlib::tableint> candidates;
+             for (size_t i = 0; i < current_offset; ++i) {
+                 if (out_alg->element_levels_[i] >= level) {
+                     candidates.push_back(i);
+                 }
+             }
 
-    std::cerr << "Refining " << candidate_set.size() << " candidates with ratio " << ratio << std::endl;
+             if (candidates.empty()) continue;
 
-    if (!candidate_set.empty() && ratio > 0) {
-        size_t K = (size_t)(ratio * 2 * M); 
-        size_t max_links0 = out_alg->maxM0_;
-        
-        #pragma omp parallel for schedule(dynamic)
-        for (size_t i = 0; i < candidate_set.size(); ++i) {
-            hnswlib::tableint u_id = candidate_set[i];
-            
-            // Brute force search in candidate_set for K nearest
-            // Priority queue stores pairs <distance, id>, ordered by distance (largest on top)
-            std::priority_queue<std::pair<dist_t, hnswlib::tableint>> top_k;
-            
-            void* u_data = out_alg->getDataByInternalId(u_id);
-            
-            for (size_t j = 0; j < candidate_set.size(); ++j) {
-                if (i == j) continue;
-                hnswlib::tableint v_id = candidate_set[j];
-                void* v_data = out_alg->getDataByInternalId(v_id);
-                
-                dist_t d = out_alg->fstdistfunc_(u_data, v_data, out_alg->dist_func_param_);
-                
-                top_k.push({d, v_id});
-                if (top_k.size() > K) top_k.pop();
-            }
-            
-            std::vector<hnswlib::tableint> new_neighbors;
-            while(!top_k.empty()) {
-                new_neighbors.push_back(top_k.top().second);
-                top_k.pop();
-            }
-            // new_neighbors are from largest dist to smallest. 
-            // Reverse to put smallest (best) first
-            std::reverse(new_neighbors.begin(), new_neighbors.end());
-            
-            // Merge into u_id's link list
-            unsigned int* linklist0 = (unsigned int*)(out_alg->data_level0_memory_ + u_id * out_alg->size_data_per_element_ + out_alg->offsetLevel0_);
-            int cur_size = *linklist0;
-            hnswlib::tableint* links0 = (hnswlib::tableint*)(linklist0 + 1);
-            
-            std::unordered_set<hnswlib::tableint> current_set;
-            for(int k=0; k<cur_size; ++k) current_set.insert(links0[k]);
-            
-            std::vector<hnswlib::tableint> to_add;
-            for (auto id : new_neighbors) {
-                if (current_set.find(id) == current_set.end() && id != u_id) {
-                    to_add.push_back(id);
-                }
-            }
-            
-            size_t needed = to_add.size();
-            if (needed > 0) {
-                if (cur_size + needed <= max_links0) {
-                     for (auto id : to_add) {
-                         links0[cur_size++] = id;
-                     }
-                     *linklist0 = cur_size;
-                } else {
-                     // Fill from back to front, prioritizing to_add
-                     size_t start_idx = max_links0 - needed;
-                     if (start_idx > cur_size) start_idx = cur_size; // Should cover if needed > max_links0 case too
+             std::cerr << "Refining Level " << level << ": " << candidates.size() << " nodes with ratio " << ratio << std::endl;
+
+             size_t K = (size_t)(ratio * M); 
+             size_t max_links = out_alg->maxM_;
+
+             #pragma omp parallel for schedule(dynamic)
+             for (size_t i = 0; i < candidates.size(); ++i) {
+                 hnswlib::tableint u_id = candidates[i];
+                 void* u_data = out_alg->getDataByInternalId(u_id);
+                 
+                 std::priority_queue<std::pair<dist_t, hnswlib::tableint>> top_k;
+
+                 for (size_t j = 0; j < candidates.size(); ++j) {
+                     if (i == j) continue;
+                     hnswlib::tableint v_id = candidates[j];
+                     void* v_data = out_alg->getDataByInternalId(v_id);
+                     dist_t d = out_alg->fstdistfunc_(u_data, v_data, out_alg->dist_func_param_);
                      
-                     // If needed > max_links0, we just take the first max_links0 of to_add (which are best)
-                     if (needed >= max_links0) {
-                         start_idx = 0;
-                         for(size_t k=0; k<max_links0; ++k) links0[k] = to_add[k];
-                         *linklist0 = max_links0;
-                     } else {
-                         // Normal case: replace tail
-                         for (size_t k = 0; k < needed; ++k) {
-                             links0[start_idx + k] = to_add[k];
-                         }
-                         *linklist0 = max_links0;
+                     top_k.push({d, v_id});
+                     if (top_k.size() > K) top_k.pop();
+                 }
+
+                 std::vector<hnswlib::tableint> new_neighbors;
+                 while(!top_k.empty()) {
+                     new_neighbors.push_back(top_k.top().second);
+                     top_k.pop();
+                 }
+                 std::reverse(new_neighbors.begin(), new_neighbors.end());
+
+                 // Merge into u_id's link list at level
+                 unsigned int* linklist = (unsigned int*)(out_alg->linkLists_[u_id] + (level-1) * out_alg->size_links_per_element_);
+                 int cur_size = *linklist;
+                 hnswlib::tableint* links = (hnswlib::tableint*)(linklist + 1);
+
+                 std::unordered_set<hnswlib::tableint> current_set;
+                 for(int k=0; k<cur_size; ++k) current_set.insert(links[k]);
+
+                 std::vector<hnswlib::tableint> to_add;
+                 for (auto id : new_neighbors) {
+                     if (current_set.find(id) == current_set.end() && id != u_id) {
+                         to_add.push_back(id);
                      }
+                 }
+
+                 size_t needed = to_add.size();
+                 if (needed > 0) {
+                     if (cur_size + needed <= max_links) {
+                          for (auto id : to_add) {
+                              links[cur_size++] = id;
+                          }
+                          *linklist = cur_size;
+                     } else {
+                          size_t start_idx = max_links - needed;
+                          if (start_idx > cur_size) start_idx = cur_size;
+                          
+                          if (needed >= max_links) {
+                              start_idx = 0;
+                              for(size_t k=0; k<max_links; ++k) links[k] = to_add[k];
+                              *linklist = max_links;
+                          } else {
+                              for (size_t k = 0; k < needed; ++k) {
+                                  links[start_idx + k] = to_add[k];
+                              }
+                              *linklist = max_links;
+                          }
+                     }
+                 }
+             }
+        }
+
+        // Refine Layer 0 (Existing Logic)
+        std::vector<hnswlib::tableint> candidate_set;
+        for (size_t i = 0; i < segments.size(); ++i) {
+            size_t offset = offsets[i];
+            for (const auto& kv : segments[i]->indegree_map_) {
+                 candidate_set.push_back(kv.first + offset);
+            }
+        }
+
+        std::cerr << "Refining Level 0: " << candidate_set.size() << " candidates with ratio " << ratio << std::endl;
+
+        if (!candidate_set.empty()) {
+            size_t K = (size_t)(ratio * 2 * M); 
+            size_t max_links0 = out_alg->maxM0_;
+            
+            #pragma omp parallel for schedule(dynamic)
+            for (size_t i = 0; i < candidate_set.size(); ++i) {
+                hnswlib::tableint u_id = candidate_set[i];
+                
+                std::priority_queue<std::pair<dist_t, hnswlib::tableint>> top_k;
+                void* u_data = out_alg->getDataByInternalId(u_id);
+                
+                for (size_t j = 0; j < candidate_set.size(); ++j) {
+                    if (i == j) continue;
+                    hnswlib::tableint v_id = candidate_set[j];
+                    void* v_data = out_alg->getDataByInternalId(v_id);
+                    dist_t d = out_alg->fstdistfunc_(u_data, v_data, out_alg->dist_func_param_);
+                    top_k.push({d, v_id});
+                    if (top_k.size() > K) top_k.pop();
+                }
+                
+                std::vector<hnswlib::tableint> new_neighbors;
+                while(!top_k.empty()) {
+                    new_neighbors.push_back(top_k.top().second);
+                    top_k.pop();
+                }
+                std::reverse(new_neighbors.begin(), new_neighbors.end());
+                
+                unsigned int* linklist0 = (unsigned int*)(out_alg->data_level0_memory_ + u_id * out_alg->size_data_per_element_ + out_alg->offsetLevel0_);
+                int cur_size = *linklist0;
+                hnswlib::tableint* links0 = (hnswlib::tableint*)(linklist0 + 1);
+                
+                std::unordered_set<hnswlib::tableint> current_set;
+                for(int k=0; k<cur_size; ++k) current_set.insert(links0[k]);
+                
+                std::vector<hnswlib::tableint> to_add;
+                for (auto id : new_neighbors) {
+                    if (current_set.find(id) == current_set.end() && id != u_id) {
+                        to_add.push_back(id);
+                    }
+                }
+                
+                size_t needed = to_add.size();
+                if (needed > 0) {
+                    if (cur_size + needed <= max_links0) {
+                         for (auto id : to_add) {
+                             links0[cur_size++] = id;
+                         }
+                         *linklist0 = cur_size;
+                    } else {
+                         size_t start_idx = max_links0 - needed;
+                         if (start_idx > cur_size) start_idx = cur_size;
+                         
+                         if (needed >= max_links0) {
+                             start_idx = 0;
+                             for(size_t k=0; k<max_links0; ++k) links0[k] = to_add[k];
+                             *linklist0 = max_links0;
+                         } else {
+                             for (size_t k = 0; k < needed; ++k) {
+                                 links0[start_idx + k] = to_add[k];
+                             }
+                             *linklist0 = max_links0;
+                         }
+                    }
                 }
             }
         }
