@@ -752,6 +752,8 @@ class Index {
     }
 };
 
+#include "merge_index.cpp"
+
 template<typename dist_t, typename data_t = float>
 class BFIndex {
  public:
@@ -1043,5 +1045,16 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("get_max_elements", &BFIndex<float>::getMaxElements)
         .def("get_current_count", &BFIndex<float>::getCurrentCount)
         .def_readwrite("num_threads", &BFIndex<float>::num_threads_default);
+
+        m.def("merge_indices", &merge_indices<float>, 
+            py::arg("filenames"),
+            py::arg("space_name"),
+            py::arg("dim"),
+            py::arg("total_max_elements"),
+            py::arg("M") = 16,
+            py::arg("ef_construction") = 200,
+            py::arg("random_seed") = 100
+        );
+
         return m.ptr();
 }

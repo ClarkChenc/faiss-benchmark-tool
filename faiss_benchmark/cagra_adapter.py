@@ -23,7 +23,7 @@ class CagraIndexAdapter:
       a clear RuntimeError during `add()`.
     """
 
-    def __init__(self, dimension: int, build_params: dict = None, convert_to_hnsw: str | None = None):
+    def __init__(self, dimension: int, build_params: dict | None = None, convert_to_hnsw: str | None = None):
         self.dimension = int(dimension)
         self.build_params = build_params or {}
         self.convert_to_hnsw = convert_to_hnsw  # e.g. "HNSW32,Flat"

@@ -1,8 +1,6 @@
 import os
 import numpy as np
 import inspect
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 class HnswlibIndexAdapter:
     """
@@ -98,6 +96,13 @@ class HnswlibIndexAdapter:
         return self.search(xq, topk)
 
     def plot_histgram(self, data, output_file):
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+        except ImportError:
+            print("matplotlib or seaborn not found, skipping plot.")
+            return
+
         counts = [item[1] for item in data]
         plt.figure(figsize=(8, 5))
         n, bins, patches = plt.hist(
@@ -221,6 +226,7 @@ class HnswlibSplitIndexAdapter:
             self.keep_indegree_rate = 1
                 
         self.seg_num = int(bp.get("seg_num", 1))
+        self.is_merge = bool(bp.get("is_merge", False))
         try:
             self._num_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
         except Exception:
@@ -229,6 +235,8 @@ class HnswlibSplitIndexAdapter:
         self._segments = []
         self._capacity_total = 0
         self._added_total = 0
+        self._merged_index = None
+
         class _HnswParamsProxy:
             def __init__(self, owner):
                 self._owner = owner
@@ -239,11 +247,18 @@ class HnswlibSplitIndexAdapter:
             @efSearch.setter
             def efSearch(self, v):
                 self._efSearch = int(v)
-                for seg in self._owner._segments:
+                if self._owner._merged_index:
                     try:
-                        seg["index"].set_ef(int(v))
+                        self._owner._merged_index.set_ef(int(v))
                     except Exception:
                         pass
+                
+                if self._owner._segments:
+                    for seg in self._owner._segments:
+                        try:
+                            seg["index"].set_ef(int(v))
+                        except Exception:
+                            pass
         self.hnsw = _HnswParamsProxy(self)
 
     def init_capacity(self, max_elements: int):
@@ -292,6 +307,13 @@ class HnswlibSplitIndexAdapter:
         self._added_total += xb.shape[0]
 
     def search(self, xq: np.ndarray, topk: int):
+        if self._merged_index:
+            xq = np.asarray(xq, dtype=np.float32)
+            if xq.ndim != 2 or xq.shape[1] != self.dimension:
+                raise RuntimeError(f"hnswlib search(): 维度不匹配，期望 {self.dimension}，得到 {xq.shape[1]}")
+            labels, distances = self._merged_index.knn_query(data=xq, k=int(topk), num_threads=self._num_threads)
+            return distances.astype(np.float32), labels.astype(np.int64)
+
         if not self._segments:
             raise RuntimeError("hnswlib search(): 索引尚未构建")
         xq = np.asarray(xq, dtype=np.float32)
@@ -331,14 +353,49 @@ class HnswlibSplitIndexAdapter:
 
     def save_to_cache(self, path: str):
         os.makedirs(path, exist_ok=True)
+        seg_paths = []
         for i, seg in enumerate(self._segments):
             fp = os.path.join(path, f"segment_{i}.hnswlib")
             seg["index"].save_index(fp)
+            seg_paths.append(fp)
+        
+        if self.is_merge:
+            import hnswlib
+            merged_path = os.path.join(path, "merged_index.hnswlib")
+            try:
+                # Merge indices
+                merged_idx = hnswlib.merge_indices(
+                    seg_paths, 
+                    self.space, 
+                    self.dimension, 
+                    self._capacity_total, 
+                    self.M, 
+                    self.efConstruction
+                )
+                merged_idx.save_index(merged_path)
+                self._merged_index = merged_idx
+            except Exception as e:
+                print(f"Warning: Failed to merge indices: {e}")
 
     @classmethod
-    def load_from_cache(cls, dir_path: str, dimension: int, space: str, seg_num: int, segment_sizes: list[int], num_threads: int | None = None):
+    def load_from_cache(cls, dir_path: str, dimension: int, space: str, seg_num: int, segment_sizes: list[int], num_threads: int | None = None, is_merge: bool = False):
         import hnswlib
-        inst = cls(dimension=dimension, build_params={"space": space, "seg_num": int(seg_num)})
+        inst = cls(dimension=dimension, build_params={"space": space, "seg_num": int(seg_num), "is_merge": is_merge})
+        
+        merged_path = os.path.join(dir_path, "merged_index.hnswlib")
+        if is_merge and os.path.exists(merged_path):
+            inst._capacity_total = int(sum(segment_sizes))
+            inst._added_total = int(sum(segment_sizes))
+            
+            idx = hnswlib.Index(space=space, dim=int(dimension))
+            idx.load_index(merged_path, max_elements=inst._capacity_total)
+            try:
+                idx.set_num_threads(int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1")))
+            except Exception:
+                pass
+            inst._merged_index = idx
+            return inst
+        
         inst._segments = []
         inst._capacity_total = int(sum(segment_sizes))
         inst._added_total = int(sum(segment_sizes))

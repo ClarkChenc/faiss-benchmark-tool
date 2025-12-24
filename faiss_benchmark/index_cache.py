@@ -65,12 +65,21 @@ def load(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
         space = str(meta.get("space", "l2"))
         seg_num = int(meta.get("seg_num", 0))
         segment_sizes = list(meta.get("segment_sizes", []))
+        is_merge = bool(meta.get("is_merge", False))
         if dim <= 0 or seg_num <= 0 or len(segment_sizes) == 0:
             return None, None
         try:
             from .hnswlib_adapter import HnswlibSplitIndexAdapter
             num_threads = os.environ.get("OMP_NUM_THREADS", "1")
-            idx = HnswlibSplitIndexAdapter.load_from_cache(idx_path, dimension=dim, space=space, seg_num=seg_num, segment_sizes=segment_sizes, num_threads=int(num_threads))
+            idx = HnswlibSplitIndexAdapter.load_from_cache(
+                idx_path, 
+                dimension=dim, 
+                space=space, 
+                seg_num=seg_num, 
+                segment_sizes=segment_sizes, 
+                num_threads=int(num_threads),
+                is_merge=is_merge
+            )
             return idx, meta
         except Exception:
             return None, None
@@ -215,6 +224,11 @@ def save(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
                 meta_out['seg_num'] = int(seg_num)
             if seg_sizes:
                 meta_out['segment_sizes'] = list(seg_sizes)
+            try:
+                is_merge = getattr(index_object, 'is_merge', False)
+                meta_out['is_merge'] = bool(is_merge)
+            except Exception:
+                pass
         elif "HNSWLIB" in index_type.upper():
             # ensure dimension and space and num_elements are present
             try:
