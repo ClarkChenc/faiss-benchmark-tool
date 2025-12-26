@@ -761,7 +761,7 @@ class Index {
     }
 };
 
-#include "merge_index.cpp"
+#include "merge_index.h"
 
 template<typename dist_t, typename data_t = float>
 class BFIndex {

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vector>
 #include <string>
 #include <random>
@@ -75,6 +77,7 @@ Index<dist_t>* merge_indices(
     }
     
     if (!potential_eps.empty()) {
+        std::cerr << "potential_eps size: " << potential_eps.size() << std::endl;
         // Simple random selection
         size_t idx = 0;
         if (potential_eps.size() > 1) {
@@ -84,11 +87,12 @@ Index<dist_t>* merge_indices(
     } else {
         out_alg->enterpoint_node_ = -1;
     }
+    std::cerr << "final entry_point: " << out_alg->enterpoint_node_ << std::endl;
 
     std::cerr << "Merging " << segments.size() << " segments, total elements: " << current_offset << std::endl;
 
     // 4. Merge Data and Links (Parallel Copy)
-    #pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < segments.size(); ++i) {
         auto seg = segments[i];
         size_t offset = offsets[i];
@@ -246,7 +250,7 @@ Index<dist_t>* merge_indices(
             size_t K = (size_t)(ratio * 2 * M); 
             size_t max_links0 = out_alg->maxM0_;
             
-            #pragma omp parallel for schedule(dynamic)
+            #pragma omp parallel for schedule(static)
             for (size_t i = 0; i < candidate_set.size(); ++i) {
                 hnswlib::tableint u_id = candidate_set[i];
                 

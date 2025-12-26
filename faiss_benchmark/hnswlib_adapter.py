@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import inspect
+import time
 
 class HnswlibIndexAdapter:
     """
@@ -364,6 +365,7 @@ class HnswlibSplitIndexAdapter:
             import hnswlib
             merged_path = os.path.join(path, "merged_index.hnswlib")
             try:
+                start_time = time.time()
                 # Merge indices
                 merged_idx = hnswlib.merge_indices(
                     filenames=seg_paths, 
@@ -376,6 +378,9 @@ class HnswlibSplitIndexAdapter:
                     ratio=self.merge_ratio,
                     keep_pruned_connections=self.keep_indegree_rate
                 )
+                merge_time = time.time() - start_time
+                print(f"merge index use time: {merge_time:.3f}s")
+
                 merged_idx.save_index(merged_path)
                 self._merged_index = merged_idx
             except Exception as e:
