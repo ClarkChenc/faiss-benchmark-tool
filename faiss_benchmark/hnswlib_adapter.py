@@ -322,19 +322,22 @@ class HnswlibSplitIndexAdapter:
                     self.segment_sizes = [seg["added"] for seg in self._segments]
                 if self.segment_sizes and len(self.segment_sizes) > 0:
                     ends = np.cumsum(np.asarray(self.segment_sizes, dtype=np.int64))
-                    # 统计进入 layer 0 的 entry point 的 seg
                     ep_labels = self._merged_index.get_l0_entrypoints(data=xq, num_threads=self._num_threads)
                     ep_labels = np.asarray(ep_labels, dtype=np.int64)
                     ep_seg = np.searchsorted(ends, ep_labels, side='right')
-                    ep_hist = np.bincount(ep_seg, minlength=len(self.segment_sizes))
-                    ep_ratio = ep_hist / float(np.sum(ep_hist)) if np.sum(ep_hist) > 0 else ep_hist
-                    print(f"search l0 entrypoint seg ratio: {ep_ratio}")
-                    # 统计最终 search 结果中各 seg 的占比
-                    flat = I.reshape(-1)
-                    seg_idx = np.searchsorted(ends, flat, side='right')
-                    hist = np.bincount(seg_idx, minlength=len(self.segment_sizes))
+                    seg_idx = np.searchsorted(ends, I, side='right')
+                    hist = np.bincount(seg_idx.reshape(-1), minlength=len(self.segment_sizes))
                     ratio = hist / float(np.sum(hist)) if np.sum(hist) > 0 else hist
                     print(f"search result seg ratio: {ratio}")
+                    nq, k = I.shape
+                    hit = 0
+                    for q in range(nq):
+                        c = np.bincount(seg_idx[q], minlength=len(self.segment_sizes))
+                        maj = int(np.argmax(c))
+                        if c[int(ep_seg[q])] == c[maj]:
+                            hit += 1
+                    hit_ratio = hit / float(nq) if nq > 0 else 0.0
+                    print(f"search entrypoint-majority hit ratio: {hit_ratio:.3f}")
             except Exception:
                 pass
             return D, I
