@@ -9,6 +9,7 @@
 #include <queue>
 #include <cstring>
 #include <iostream>
+#include <chrono>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -16,6 +17,16 @@
 
 // We assume this file is included in bindings.cpp after Index class definition
 // so we don't need to include hnswlib.h again or define Index class.
+
+class SameSegmentFilter : public hnswlib::BaseFilterFunctor {
+    size_t start_id;
+    size_t end_id;
+ public:
+    SameSegmentFilter(size_t start, size_t end) : start_id(start), end_id(end) {}
+    bool operator()(hnswlib::labeltype id) override {
+        return id < start_id || id >= end_id;
+    }
+};
 
 template<typename dist_t>
 Index<dist_t>* merge_indices(
@@ -152,38 +163,40 @@ Index<dist_t>* merge_indices(
         }
     }
 
+    // Prepare boundaries for segment filtering
+    std::vector<size_t> boundaries = offsets;
+    boundaries.push_back(current_offset);
+
     // 5. Refinement
     if (ratio > 0) {
-        for (int level = max_level; level >= 1; --level) {
-            std::vector<hnswlib::tableint> candidates;
-            for (size_t i = 0; i < current_offset; ++i) {
-                if (out_alg->element_levels_[i] >= level) {
-                    candidates.push_back(i);
-                }
-            }
-            if (candidates.empty()) continue;
-            std::cerr << "Refining Level " << level << ": " << candidates.size() << " nodes with ratio " << ratio << std::endl;
-            hnswlib::HierarchicalNSW<dist_t> cand_index(merged_index_wrapper->l2space, candidates.size(), M, efConstruction, random_seed);
-            for (size_t i = 0; i < candidates.size(); ++i) {
-                void* p = out_alg->getDataByInternalId(candidates[i]);
-                cand_index.addPoint(p, (hnswlib::labeltype)candidates[i], false);
-            }
-            cand_index.setEf(std::max((size_t)std::ceil(ratio * M) * 2, (size_t)10));
-            size_t K = (size_t)(ratio * M);
-            size_t max_links = out_alg->maxM_;
+        auto refine_layer = [&](const std::vector<hnswlib::tableint>& nodes,
+                                hnswlib::HierarchicalNSW<dist_t>& cand_index,
+                                size_t K,
+                                int level) {
+            size_t max_links = level == 0 ? out_alg->maxM0_ : out_alg->maxM_;
             #pragma omp parallel for schedule(dynamic)
-            for (size_t i = 0; i < candidates.size(); ++i) {
-                hnswlib::tableint u_id = candidates[i];
+            for (size_t i = 0; i < nodes.size(); ++i) {
+                hnswlib::tableint u_id = nodes[i];
                 void* u_data = out_alg->getDataByInternalId(u_id);
-                auto res = cand_index.searchKnnCloserFirst(u_data, K);
+                auto it = std::upper_bound(boundaries.begin(), boundaries.end(), (size_t)u_id);
+                size_t seg_idx = std::distance(boundaries.begin(), it) - 1;
+                SameSegmentFilter filter(boundaries[seg_idx], boundaries[seg_idx+1]);
+                auto res = cand_index.searchKnnCloserFirst(u_data, K, &filter);
                 std::vector<hnswlib::tableint> new_neighbors;
                 for (auto& pr : res) {
                     hnswlib::tableint v_id = (hnswlib::tableint)pr.second;
                     if (v_id != u_id) new_neighbors.push_back(v_id);
                 }
-                unsigned int* linklist = (unsigned int*)(out_alg->linkLists_[u_id] + (level-1) * out_alg->size_links_per_element_);
+                unsigned int* linklist;
+                hnswlib::tableint* links;
+                if (level == 0) {
+                    linklist = (unsigned int*)(out_alg->data_level0_memory_ + u_id * out_alg->size_data_per_element_ + out_alg->offsetLevel0_);
+                    links = (hnswlib::tableint*)(linklist + 1);
+                } else {
+                    linklist = (unsigned int*)(out_alg->linkLists_[u_id] + (level-1) * out_alg->size_links_per_element_);
+                    links = (hnswlib::tableint*)(linklist + 1);
+                }
                 int cur_size = *linklist;
-                hnswlib::tableint* links = (hnswlib::tableint*)(linklist + 1);
                 std::unordered_set<hnswlib::tableint> current_set;
                 for(int k=0; k<cur_size; ++k) current_set.insert(links[k]);
                 std::vector<hnswlib::tableint> to_add;
@@ -215,6 +228,28 @@ Index<dist_t>* merge_indices(
                     }
                 }
             }
+        };
+        for (int level = max_level; level >= 1; --level) {
+            std::vector<hnswlib::tableint> candidates;
+            for (size_t i = 0; i < current_offset; ++i) {
+                if (out_alg->element_levels_[i] >= level) {
+                    candidates.push_back(i);
+                }
+            }
+            if (candidates.empty()) continue;
+            std::cerr << "Refining Level " << level << ": " << candidates.size() << " nodes with ratio " << ratio << std::endl;
+            auto t_build_start_lvl = std::chrono::steady_clock::now();
+            hnswlib::HierarchicalNSW<dist_t> cand_index(merged_index_wrapper->l2space, candidates.size(), M, efConstruction, random_seed);
+            for (size_t i = 0; i < candidates.size(); ++i) {
+                void* p = out_alg->getDataByInternalId(candidates[i]);
+                cand_index.addPoint(p, (hnswlib::labeltype)candidates[i], false);
+            }
+            cand_index.setEf(std::max((size_t)std::ceil(ratio * M) * 2, (size_t)10));
+            auto t_build_end_lvl = std::chrono::steady_clock::now();
+            std::cerr << "Level " << level << " 临时索引构建耗时: "
+                      << std::chrono::duration<double>(t_build_end_lvl - t_build_start_lvl).count() << "s" << std::endl;
+            size_t K = (size_t)(ratio * M);
+            refine_layer(candidates, cand_index, K, level);
         }
         std::vector<hnswlib::tableint> candidate_set;
         for (size_t i = 0; i < segments.size(); ++i) {
@@ -225,6 +260,7 @@ Index<dist_t>* merge_indices(
         }
         std::cerr << "Refining Level 0: " << candidate_set.size() << " candidates with ratio " << ratio << std::endl;
         if (!candidate_set.empty()) {
+            auto t_build_start_l0 = std::chrono::steady_clock::now();
             hnswlib::HierarchicalNSW<dist_t> cand_index(merged_index_wrapper->l2space, candidate_set.size(), M, efConstruction, random_seed);
             for (size_t i = 0; i < candidate_set.size(); ++i) {
                 void* p = out_alg->getDataByInternalId(candidate_set[i]);
@@ -232,51 +268,14 @@ Index<dist_t>* merge_indices(
             }
             size_t K = (size_t)(ratio * 2 * M);
             cand_index.setEf(std::max(K * 2, (size_t)10));
-            size_t max_links0 = out_alg->maxM0_;
-            #pragma omp parallel for schedule(dynamic)
-            for (size_t i = 0; i < candidate_set.size(); ++i) {
-                hnswlib::tableint u_id = candidate_set[i];
-                void* u_data = out_alg->getDataByInternalId(u_id);
-                auto res = cand_index.searchKnnCloserFirst(u_data, K);
-                std::vector<hnswlib::tableint> new_neighbors;
-                for (auto& pr : res) {
-                    hnswlib::tableint v_id = (hnswlib::tableint)pr.second;
-                    if (v_id != u_id) new_neighbors.push_back(v_id);
-                }
-                unsigned int* linklist0 = (unsigned int*)(out_alg->data_level0_memory_ + u_id * out_alg->size_data_per_element_ + out_alg->offsetLevel0_);
-                int cur_size = *linklist0;
-                hnswlib::tableint* links0 = (hnswlib::tableint*)(linklist0 + 1);
-                std::unordered_set<hnswlib::tableint> current_set;
-                for(int k=0; k<cur_size; ++k) current_set.insert(links0[k]);
-                std::vector<hnswlib::tableint> to_add;
-                for (auto id : new_neighbors) {
-                    if (current_set.find(id) == current_set.end()) {
-                        to_add.push_back(id);
-                    }
-                }
-                size_t needed = to_add.size();
-                if (needed > 0) {
-                    if (cur_size + needed <= max_links0) {
-                        for (auto id : to_add) {
-                            links0[cur_size++] = id;
-                        }
-                        *linklist0 = cur_size;
-                    } else {
-                        size_t start_idx = max_links0 - needed;
-                        if (start_idx > cur_size) start_idx = cur_size;
-                        if (needed >= max_links0) {
-                            start_idx = 0;
-                            for(size_t k=0; k<max_links0; ++k) links0[k] = to_add[k];
-                            *linklist0 = max_links0;
-                        } else {
-                            for (size_t k = 0; k < needed; ++k) {
-                                links0[start_idx + k] = to_add[k];
-                            }
-                            *linklist0 = max_links0;
-                        }
-                    }
-                }
-            }
+            auto t_build_end_l0 = std::chrono::steady_clock::now();
+            std::cerr << "Level 0 临时索引构建耗时: "
+                      << std::chrono::duration<double>(t_build_end_l0 - t_build_start_l0).count() << "s" << std::endl;
+            auto t_search_start_l0 = std::chrono::steady_clock::now();
+            refine_layer(candidate_set, cand_index, K, 0);
+            auto t_search_end_l0 = std::chrono::steady_clock::now();
+            std::cerr << "Level 0 candidate_set 检索耗时: "
+                      << std::chrono::duration<double>(t_search_end_l0 - t_search_start_l0).count() << "s" << std::endl;
         }
     }
 
