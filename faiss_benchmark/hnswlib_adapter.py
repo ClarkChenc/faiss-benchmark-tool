@@ -238,6 +238,7 @@ class HnswlibSplitIndexAdapter:
         self._capacity_total = 0
         self._added_total = 0
         self._merged_index = None
+        self.segment_sizes = None
 
         class _HnswParamsProxy:
             def __init__(self, owner):
@@ -314,7 +315,29 @@ class HnswlibSplitIndexAdapter:
             if xq.ndim != 2 or xq.shape[1] != self.dimension:
                 raise RuntimeError(f"hnswlib search(): 维度不匹配，期望 {self.dimension}，得到 {xq.shape[1]}")
             labels, distances = self._merged_index.knn_query(data=xq, k=int(topk), num_threads=self._num_threads)
-            return distances.astype(np.float32), labels.astype(np.int64)
+            D = distances.astype(np.float32)
+            I = labels.astype(np.int64)
+            try:
+                if self.segment_sizes is None and self._segments:
+                    self.segment_sizes = [seg["added"] for seg in self._segments]
+                if self.segment_sizes and len(self.segment_sizes) > 0:
+                    ends = np.cumsum(np.asarray(self.segment_sizes, dtype=np.int64))
+                    # 统计进入 layer 0 的 entry point 的 seg
+                    ep_labels = self._merged_index.get_l0_entrypoints(data=xq, num_threads=self._num_threads)
+                    ep_labels = np.asarray(ep_labels, dtype=np.int64)
+                    ep_seg = np.searchsorted(ends, ep_labels, side='right')
+                    ep_hist = np.bincount(ep_seg, minlength=len(self.segment_sizes))
+                    ep_ratio = ep_hist / float(np.sum(ep_hist)) if np.sum(ep_hist) > 0 else ep_hist
+                    print(f"search l0 entrypoint seg ratio: {ep_ratio}")
+                    # 统计最终 search 结果中各 seg 的占比
+                    flat = I.reshape(-1)
+                    seg_idx = np.searchsorted(ends, flat, side='right')
+                    hist = np.bincount(seg_idx, minlength=len(self.segment_sizes))
+                    ratio = hist / float(np.sum(hist)) if np.sum(hist) > 0 else hist
+                    print(f"search result seg ratio: {ratio}")
+            except Exception:
+                pass
+            return D, I
 
         if not self._segments:
             raise RuntimeError("hnswlib search(): 索引尚未构建")
@@ -404,6 +427,7 @@ class HnswlibSplitIndexAdapter:
             except Exception:
                 pass
             inst._merged_index = idx
+            inst.segment_sizes = list(segment_sizes)
             return inst
         
         inst._segments = []

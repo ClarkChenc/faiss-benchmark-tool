@@ -714,6 +714,41 @@ class Index {
                 free_when_done_d));
     }
 
+    py::array_t<hnswlib::labeltype> getL0EntryPoints_return_numpy(
+        py::object input,
+        int num_threads = -1) {
+        py::array_t < dist_t, py::array::c_style | py::array::forcecast > items(input);
+        auto buffer = items.request();
+        size_t rows, features;
+        if (num_threads <= 0)
+            num_threads = num_threads_default;
+        hnswlib::labeltype* data_numpy_ep = nullptr;
+        {
+            py::gil_scoped_release l;
+            get_input_array_shapes(buffer, &rows, &features);
+            if (rows <= num_threads * 4) {
+                num_threads = 1;
+            }
+            data_numpy_ep = new hnswlib::labeltype[rows];
+            ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId) {
+                if (normalize == false) {
+                    data_numpy_ep[row] = appr_alg->getL0EntryPointLabel((void*)items.data(row));
+                } else {
+                    std::vector<float> norm_vec(dim);
+                    normalize_vector((float*)items.data(row), norm_vec.data());
+                    data_numpy_ep[row] = appr_alg->getL0EntryPointLabel((void*)norm_vec.data());
+                }
+            });
+        }
+        py::capsule free_when_done_ep(data_numpy_ep, [](void* f) {
+            delete[] f;
+        });
+        return py::array_t<hnswlib::labeltype>(
+            { rows },  // shape
+            { sizeof(hnswlib::labeltype) },  // stride
+            data_numpy_ep,
+            free_when_done_ep);
+    }
 
     void markDeleted(size_t label) {
         appr_alg->markDelete(label);
@@ -969,6 +1004,10 @@ PYBIND11_PLUGIN(hnswlib) {
             py::arg("k") = 1,
             py::arg("num_threads") = -1,
             py::arg("filter") = py::none())
+        .def("get_l0_entrypoints",
+            &Index<float>::getL0EntryPoints_return_numpy,
+            py::arg("data"),
+            py::arg("num_threads") = -1)
         .def("add_items",
             &Index<float>::addItems,
             py::arg("data"),

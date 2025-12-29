@@ -1503,6 +1503,39 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return result;
     }
 
+    // Return the entry point internal id used when entering layer 0 for a given query
+    tableint getL0EntryPointInternal(const void* query_data) const {
+        if (cur_element_count == 0) return (tableint)-1;
+        tableint currObj = enterpoint_node_;
+        dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
+        for (int level = maxlevel_; level > 0; level--) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                unsigned int *data = (unsigned int *) get_linklist(currObj, level);
+                int size = getListCount(data);
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+                    if (d < curdist) {
+                        curdist = d;
+                        currObj = cand;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        return currObj;
+    }
+
+    // Return the entry point external label used when entering layer 0 for a given query
+    labeltype getL0EntryPointLabel(const void* query_data) const {
+        tableint ep = getL0EntryPointInternal(query_data);
+        if (ep == (tableint)-1) return (labeltype)-1;
+        return getExternalLabel(ep);
+    }
+
 
     void checkIntegrity() {
         int connections_checked = 0;
