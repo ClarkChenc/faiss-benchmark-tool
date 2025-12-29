@@ -240,13 +240,15 @@ Index<dist_t>* merge_indices(
             std::cerr << "Refining Level " << level << ": " << candidates.size() << " nodes with ratio " << ratio << std::endl;
             auto t_build_start_lvl = std::chrono::steady_clock::now();
             hnswlib::HierarchicalNSW<dist_t> cand_index(merged_index_wrapper->l2space, candidates.size(), M, efConstruction, random_seed);
+
+            #pragma omp parallel for schedule(static)
             for (size_t i = 0; i < candidates.size(); ++i) {
                 void* p = out_alg->getDataByInternalId(candidates[i]);
                 cand_index.addPoint(p, (hnswlib::labeltype)candidates[i], false);
             }
             cand_index.setEf(std::max((size_t)std::ceil(ratio * M) * 2, (size_t)10));
             auto t_build_end_lvl = std::chrono::steady_clock::now();
-            std::cerr << "Level " << level << " 临时索引构建耗时: "
+            std::cerr << "\tLevel " << level << " build tmp index time cost: "
                       << std::chrono::duration<double>(t_build_end_lvl - t_build_start_lvl).count() << "s" << std::endl;
             size_t K = (size_t)(ratio * M);
             refine_layer(candidates, cand_index, K, level);
@@ -262,6 +264,8 @@ Index<dist_t>* merge_indices(
         if (!candidate_set.empty()) {
             auto t_build_start_l0 = std::chrono::steady_clock::now();
             hnswlib::HierarchicalNSW<dist_t> cand_index(merged_index_wrapper->l2space, candidate_set.size(), M, efConstruction, random_seed);
+
+            #pragma omp parallel for schedule(static)
             for (size_t i = 0; i < candidate_set.size(); ++i) {
                 void* p = out_alg->getDataByInternalId(candidate_set[i]);
                 cand_index.addPoint(p, (hnswlib::labeltype)candidate_set[i], false);
@@ -269,12 +273,12 @@ Index<dist_t>* merge_indices(
             size_t K = (size_t)(ratio * 2 * M);
             cand_index.setEf(std::max(K * 2, (size_t)10));
             auto t_build_end_l0 = std::chrono::steady_clock::now();
-            std::cerr << "Level 0 临时索引构建耗时: "
+            std::cerr << "\tLevel 0 build tmp index time cost: "
                       << std::chrono::duration<double>(t_build_end_l0 - t_build_start_l0).count() << "s" << std::endl;
             auto t_search_start_l0 = std::chrono::steady_clock::now();
             refine_layer(candidate_set, cand_index, K, 0);
             auto t_search_end_l0 = std::chrono::steady_clock::now();
-            std::cerr << "Level 0 candidate_set 检索耗时: "
+            std::cerr << "\tLevel 0 candidate_set search cost: "
                       << std::chrono::duration<double>(t_search_end_l0 - t_search_start_l0).count() << "s" << std::endl;
         }
     }
