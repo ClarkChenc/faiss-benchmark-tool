@@ -317,29 +317,6 @@ class HnswlibSplitIndexAdapter:
             labels, distances = self._merged_index.knn_query(data=xq, k=int(topk), num_threads=self._num_threads)
             D = distances.astype(np.float32)
             I = labels.astype(np.int64)
-            try:
-                if self.segment_sizes is None and self._segments:
-                    self.segment_sizes = [seg["added"] for seg in self._segments]
-                if self.segment_sizes and len(self.segment_sizes) > 0:
-                    ends = np.cumsum(np.asarray(self.segment_sizes, dtype=np.int64))
-                    ep_labels = self._merged_index.get_l0_entrypoints(data=xq, num_threads=self._num_threads)
-                    ep_labels = np.asarray(ep_labels, dtype=np.int64)
-                    ep_seg = np.searchsorted(ends, ep_labels, side='right')
-                    seg_idx = np.searchsorted(ends, I, side='right')
-                    hist = np.bincount(seg_idx.reshape(-1), minlength=len(self.segment_sizes))
-                    ratio = hist / float(np.sum(hist)) if np.sum(hist) > 0 else hist
-                    print(f"search result seg ratio: {ratio}")
-                    nq, k = I.shape
-                    hit = 0
-                    for q in range(nq):
-                        c = np.bincount(seg_idx[q], minlength=len(self.segment_sizes))
-                        maj = int(np.argmax(c))
-                        if c[int(ep_seg[q])] == c[maj]:
-                            hit += 1
-                    hit_ratio = hit / float(nq) if nq > 0 else 0.0
-                    print(f"search entrypoint-majority hit ratio: {hit_ratio:.3f}")
-            except Exception:
-                pass
             return D, I
 
         if not self._segments:
@@ -409,6 +386,9 @@ class HnswlibSplitIndexAdapter:
 
                 merged_idx.save_index(merged_path)
                 self._merged_index = merged_idx
+                if self.segment_sizes and hasattr(self._merged_index, "set_segment_boundaries"):
+                     ends = np.cumsum(self.segment_sizes, dtype=np.uint64)
+                     self._merged_index.set_segment_boundaries(ends)
             except Exception as e:
                 print(f"Warning: Failed to merge indices: {e}")
 
@@ -431,6 +411,9 @@ class HnswlibSplitIndexAdapter:
                 pass
             inst._merged_index = idx
             inst.segment_sizes = list(segment_sizes)
+            if inst.segment_sizes and hasattr(inst._merged_index, "set_segment_boundaries"):
+                ends = np.cumsum(inst.segment_sizes, dtype=np.uint64)
+                inst._merged_index.set_segment_boundaries(ends)
             return inst
         
         inst._segments = []
@@ -448,3 +431,8 @@ class HnswlibSplitIndexAdapter:
                 pass
             inst._segments.append({"index": idx, "capacity": cap, "added": cap})
         return inst
+
+    def get_cumulative_hit_rate(self):
+        if self._merged_index and hasattr(self._merged_index, "get_hit_rate"):
+            return self._merged_index.get_hit_rate()
+        return (0, 0)

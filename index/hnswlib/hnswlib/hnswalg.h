@@ -49,6 +49,30 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     size_t size_links_level0_{0};
     size_t offsetData_{0}, offsetLevel0_{0}, label_offset_{ 0 };
 
+    // Segment statistics
+    std::vector<labeltype> segment_boundaries_;
+    mutable std::atomic<size_t> total_queries_{0};
+    mutable std::atomic<size_t> hit_queries_{0};
+
+    void setSegmentBoundaries(const std::vector<labeltype>& boundaries) {
+        std::lock_guard<std::mutex> lock(global);
+        segment_boundaries_ = boundaries;
+    }
+
+    std::pair<size_t, size_t> getHitRate() const {
+        return {hit_queries_.load(), total_queries_.load()};
+    }
+
+    void resetHitRate() {
+        hit_queries_ = 0;
+        total_queries_ = 0;
+    }
+
+    int getSegmentId(labeltype label) const {
+        auto it = std::upper_bound(segment_boundaries_.begin(), segment_boundaries_.end(), label);
+        return (int)std::distance(segment_boundaries_.begin(), it);
+    }
+
     char *data_level0_memory_{nullptr};
     char **linkLists_{nullptr};
     std::vector<int> element_levels_;  // keeps level of each element
@@ -1446,6 +1470,30 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
             top_candidates.pop();
         }
+
+        if (!segment_boundaries_.empty()) {
+            total_queries_++;
+            labeltype entry_label = (currObj != (tableint)-1) ? getExternalLabel(currObj) : (labeltype)-1;
+            if (entry_label != (labeltype)-1) {
+                int entry_seg = getSegmentId(entry_label);
+                std::vector<int> seg_counts(segment_boundaries_.size() + 1, 0);
+                std::priority_queue<std::pair<dist_t, labeltype >> res_copy = result;
+                int max_count = 0;
+                while(!res_copy.empty()) {
+                    labeltype l = res_copy.top().second;
+                    res_copy.pop();
+                    int seg = getSegmentId(l);
+                    if (seg < seg_counts.size()) {
+                        seg_counts[seg]++;
+                        if (seg_counts[seg] > max_count) max_count = seg_counts[seg];
+                    }
+                }
+                if (entry_seg < seg_counts.size() && seg_counts[entry_seg] == max_count && max_count > 0) {
+                    hit_queries_++;
+                }
+            }
+        }
+
         return result;
     }
 

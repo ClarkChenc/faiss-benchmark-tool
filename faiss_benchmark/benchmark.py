@@ -261,7 +261,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     # Prefer an available total bytes source
     total_bytes = gpu_total_bytes or (mem_info_before["total_bytes"] if mem_info_before else (mem_info_after["total_bytes"] if mem_info_after else None))
 
-    return {
+    result = {
         "search_time": total_search_time,
         "qps": qps,
         "recall": recall,
@@ -270,3 +270,13 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         "gpu_mem_peak_used_bytes": peak_used,
         "gpu_mem_total_bytes": total_bytes,
     }
+
+    if hasattr(index, "get_cumulative_hit_rate"):
+        try:
+            hit_rate_info = index.get_cumulative_hit_rate()
+            if isinstance(hit_rate_info, tuple) and len(hit_rate_info) == 2:
+                result["hit_rate"] = hit_rate_info
+        except Exception:
+            pass
+            
+    return result

@@ -22,4 +22,8 @@ def print_results(index_type, results, topk=10):
                 print(f"GPU memory peak: {used_gb:.2f}GB")
     recall_key = f"Recall@{topk}"
     print(f"{recall_key}: {results['recall']:.4f}")
+    if 'hit_rate' in results:
+        hit, total = results['hit_rate']
+        if total > 0:
+            print(f"Entrypoint-majority hit rate: {hit/total:.3f} ({hit}/{total})")
     print("-" * 40)

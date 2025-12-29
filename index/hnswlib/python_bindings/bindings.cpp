@@ -233,6 +233,26 @@ class Index {
         this->num_threads_default = num_threads;
     }
 
+    void set_segment_boundaries(py::object boundaries_obj) {
+         if (!appr_alg) throw std::runtime_error("Index not initialized");
+         py::array_t<hnswlib::labeltype, py::array::c_style | py::array::forcecast> items(boundaries_obj);
+         auto buffer = items.request();
+         if (buffer.ndim != 1) throw std::runtime_error("Boundaries must be 1D array");
+         size_t size = buffer.shape[0];
+         std::vector<hnswlib::labeltype> bounds(size);
+         hnswlib::labeltype* data = (hnswlib::labeltype*)buffer.ptr;
+         for(size_t i=0; i<size; ++i) {
+              bounds[i] = data[i];
+         }
+         appr_alg->setSegmentBoundaries(bounds);
+    }
+
+    py::tuple get_hit_rate() {
+        if (!appr_alg) throw std::runtime_error("Index not initialized");
+        std::pair<size_t, size_t> rate = appr_alg->getHitRate();
+        return py::make_tuple(rate.first, rate.second);
+    }
+
     size_t indexFileSize() const {
         return appr_alg->indexFileSize();
     }
@@ -1019,6 +1039,8 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("set_ef", &Index<float>::set_ef, py::arg("ef"))
         .def("set_keep_indegree_rate", &Index<float>::set_keep_indegree_rate, py::arg("rate"))
         .def("set_num_threads", &Index<float>::set_num_threads, py::arg("num_threads"))
+        .def("set_segment_boundaries", &Index<float>::set_segment_boundaries, py::arg("boundaries"))
+        .def("get_hit_rate", &Index<float>::get_hit_rate)
         .def("index_file_size", &Index<float>::indexFileSize)
         .def("save_index", &Index<float>::saveIndex, py::arg("path_to_index"))
         .def("load_index",
