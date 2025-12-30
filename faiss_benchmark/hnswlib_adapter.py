@@ -89,11 +89,17 @@ class HnswlibIndexAdapter:
         return D, I
 
     def search_with_params(self, xq: np.ndarray, topk: int, params: dict | None = None):
-        if params and "efSearch" in params:
-            try:
-                self._index.set_ef(int(params["efSearch"]))
-            except Exception:
-                pass
+        if params:
+            if "efSearch" in params:
+                try:
+                    self._index.set_ef(int(params["efSearch"]))
+                except Exception:
+                    pass
+            if "trigger_multi_entry" in params:
+                try:
+                    self._index.trigger_multi_entry = bool(params["trigger_multi_entry"])
+                except Exception:
+                    pass
         return self.search(xq, topk)
 
     def plot_histgram(self, data, output_file):

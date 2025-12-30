@@ -463,6 +463,7 @@ class Index {
             "mult"_a = appr_alg->mult_,
             "ef_construction"_a = appr_alg->ef_construction_,
             "ef"_a = appr_alg->ef_,
+            "trigger_multi_entry"_a = appr_alg->trigger_multi_entry_,
             "has_deletions"_a = (bool)appr_alg->num_deleted_,
             "size_links_per_element"_a = appr_alg->size_links_per_element_,
             "allow_replace_deleted"_a = appr_alg->allow_replace_deleted_,
@@ -583,6 +584,11 @@ class Index {
         assert_true(appr_alg->ef_construction_ == d["ef_construction"].cast<size_t>(), "Invalid value of ef_construction_ ");
 
         appr_alg->ef_ = d["ef"].cast<size_t>();
+        if (d.contains("trigger_multi_entry")) {
+            appr_alg->trigger_multi_entry_ = d["trigger_multi_entry"].cast<bool>();
+        } else {
+            appr_alg->trigger_multi_entry_ = false;
+        }
 
         assert_true(appr_alg->size_links_per_element_ == d["size_links_per_element"].cast<size_t>(), "Invalid value of size_links_per_element_ ");
 
@@ -1064,6 +1070,14 @@ PYBIND11_PLUGIN(hnswlib) {
             index.default_ef = ef_;
             if (index.appr_alg)
               index.appr_alg->ef_ = ef_;
+        })
+        .def_property("trigger_multi_entry",
+          [](const Index<float> & index) {
+            return index.index_inited ? index.appr_alg->trigger_multi_entry_ : false;
+          },
+          [](Index<float> & index, const bool trigger) {
+            if (index.appr_alg)
+              index.appr_alg->trigger_multi_entry_ = trigger;
         })
         .def_property_readonly("max_elements", [](const Index<float> & index) {
             return index.index_inited ? index.appr_alg->max_elements_ : 0;

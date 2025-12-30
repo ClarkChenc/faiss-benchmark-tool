@@ -67,6 +67,8 @@ index_types:
       space: l2
     search_param:
       efSearch: 32
+      trigger_multi_entry: false
+
 
   # CAGRA 索引（GPU 图索引，使用 cuVS）
   - index_type: "CAGRA"

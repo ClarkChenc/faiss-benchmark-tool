@@ -32,6 +32,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     size_t maxM0_{0};
     size_t ef_construction_{0};
     size_t ef_{ 0 };
+    bool trigger_multi_entry_{ false };
 
     double mult_{0.0}, revSize_{0.0};
     int maxlevel_{0};
@@ -42,7 +43,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     mutable std::vector<std::mutex> label_op_locks_;
 
     std::mutex global;
-    std::vector<std::mutex> link_list_locks_;
+    mutable std::vector<std::mutex> link_list_locks_;
 
     tableint enterpoint_node_{0};
 
@@ -251,7 +252,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     }
 
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-    searchBaseLayer(tableint ep_id, const void *data_point, int layer) {
+    searchBaseLayer(tableint ep_id, const void *data_point, int layer, size_t ef) const {
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
@@ -273,7 +274,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
         while (!candidateSet.empty()) {
             std::pair<dist_t, tableint> curr_el_pair = candidateSet.top();
-            if ((-curr_el_pair.first) > lowerBound && top_candidates.size() == ef_construction_) {
+            if ((-curr_el_pair.first) > lowerBound && top_candidates.size() == ef) {
                 break;
             }
             candidateSet.pop();
@@ -310,7 +311,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 char *currObj1 = (getDataByInternalId(candidate_id));
 
                 dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
-                if (top_candidates.size() < ef_construction_ || lowerBound > dist1) {
+                if (top_candidates.size() < ef || lowerBound > dist1) {
                     candidateSet.emplace(-dist1, candidate_id);
 #ifdef USE_SSE
                     _mm_prefetch(getDataByInternalId(candidateSet.top().second), _MM_HINT_T0);
@@ -319,7 +320,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     if (!isMarkedDeleted(candidate_id))
                         top_candidates.emplace(dist1, candidate_id);
 
-                    if (top_candidates.size() > ef_construction_)
+                    if (top_candidates.size() > ef)
                         top_candidates.pop();
 
                     if (!top_candidates.empty())
@@ -1187,7 +1188,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
         for (int level = dataPointLevel; level >= 0; level--) {
             std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> topCandidates = searchBaseLayer(
-                    currObj, dataPoint, level);
+                    currObj, dataPoint, level, ef_construction_);
 
             std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> filteredTopCandidates;
             while (topCandidates.size() > 0) {
@@ -1318,7 +1319,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     throw std::runtime_error("Level error");
 
                 std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayer(
-                        currObj, data_point, level);
+                        currObj, data_point, level, ef_construction_);
                 if (epDeleted) {
                     top_candidates.emplace(fstdistfunc_(data_point, getDataByInternalId(enterpoint_copy), dist_func_param_), enterpoint_copy);
                     if (top_candidates.size() > ef_construction_)
@@ -1456,35 +1457,51 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         tableint currObj = enterpoint_node_;
         dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
 
+        std::vector<tableint> init_seeds;
+
         for (int level = maxlevel_; level > 0; level--) {
-            bool changed = true;
-            while (changed) {
-                changed = false;
-                unsigned int *data;
+            if (trigger_multi_entry_ && level == 1) {
+                 size_t ef_l1 = std::max(ef_, k);
+                 auto top_candidates = searchBaseLayer(currObj, query_data, 1, ef_l1);
+                 
+                 init_seeds.reserve(top_candidates.size());
+                 while (!top_candidates.empty()) {
+                     init_seeds.push_back(top_candidates.top().second);
+                     top_candidates.pop();
+                 }
+                 if (!init_seeds.empty()) {
+                     currObj = init_seeds.back();
+                     curdist = fstdistfunc_(query_data, getDataByInternalId(currObj), dist_func_param_);
+                 }
+            } else {
+                bool changed = true;
+                while (changed) {
+                    changed = false;
+                    unsigned int *data;
 
-                data = (unsigned int *) get_linklist(currObj, level);
-                int size = getListCount(data);
-                metric_hops++;
-                metric_distance_computations+=size;
+                    data = (unsigned int *) get_linklist(currObj, level);
+                    int size = getListCount(data);
+                    metric_hops++;
+                    metric_distance_computations+=size;
 
-                tableint *datal = (tableint *) (data + 1);
-                for (int i = 0; i < size; i++) {
-                    tableint cand = datal[i];
-                    if (cand < 0 || cand > max_elements_)
-                        throw std::runtime_error("cand error");
-                    dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+                    tableint *datal = (tableint *) (data + 1);
+                    for (int i = 0; i < size; i++) {
+                        tableint cand = datal[i];
+                        if (cand < 0 || cand > max_elements_)
+                            throw std::runtime_error("cand error");
+                        dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
 
-                    if (d < curdist) {
-                        curdist = d;
-                        currObj = cand;
-                        changed = true;
+                        if (d < curdist) {
+                            curdist = d;
+                            currObj = cand;
+                            changed = true;
+                        }
                     }
                 }
             }
         }
 
-        std::vector<tableint> init_seeds;
-        if (maxlevel_ >= 1) {
+        if (!trigger_multi_entry_ && maxlevel_ >= 1) {
             unsigned int *data1 = (unsigned int *) get_linklist(currObj, 1);
             int size1 = getListCount(data1);
             tableint *datal1 = (tableint *) (data1 + 1);
