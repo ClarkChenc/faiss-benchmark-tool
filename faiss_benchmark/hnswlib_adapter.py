@@ -386,6 +386,8 @@ class HnswlibSplitIndexAdapter:
 
                 merged_idx.save_index(merged_path)
                 self._merged_index = merged_idx
+                if self.segment_sizes is None and self._segments:
+                    self.segment_sizes = [seg["added"] for seg in self._segments]
                 if self.segment_sizes and hasattr(self._merged_index, "set_segment_boundaries"):
                      ends = np.cumsum(self.segment_sizes, dtype=np.uint64)
                      self._merged_index.set_segment_boundaries(ends)
