@@ -61,7 +61,7 @@ def load_index(index_path, space, dim):
     idx.load_index(index_path, max_elements=0)
     return idx
 
-def parse_l0_neighbors(idx, start_id, end_id, output_json=False):
+def parse_neighbors(idx, start_id, end_id, level=0, output_json=False):
     params = idx.get_index_params()
     offset_l0 = int(params["offset_level0"])
     size_per = int(params["size_data_per_element"])
@@ -69,7 +69,10 @@ def parse_l0_neighbors(idx, start_id, end_id, output_json=False):
     ext = np.array(params["label_lookup_external"], dtype=np.int64)
     itn = np.array(params["label_lookup_internal"], dtype=np.uint32)
     inv = {int(itn[i]): int(ext[i]) for i in range(len(ext))}
-    data = np.array(params["data_level0"], dtype=np.uint8)
+    data_l0 = np.array(params["data_level0"], dtype=np.uint8)
+    elem_lvls = np.array(params["element_levels"], dtype=np.int32)
+    size_links_per_elem = int(params["size_links_per_element"])
+    link_lists = np.array(params["link_lists"], dtype=np.uint8)
 
     res = {}
     for doc_id in range(int(start_id), int(end_id)):
@@ -81,14 +84,32 @@ def parse_l0_neighbors(idx, start_id, end_id, output_json=False):
             continue
         if internal < 0 or internal >= cur_count:
             continue
-        base = internal * size_per + offset_l0
-        deg = int(np.frombuffer(data[base:base+4].tobytes(), dtype=np.int32)[0])
-        nb_start = base + 4
-        nbs = np.frombuffer(data[nb_start:nb_start + 4 * deg].tobytes(), dtype=np.uint32)
-        res[doc_id] = [inv.get(int(x), -1) for x in nbs.tolist()]
+        if level == 0:
+            base = internal * size_per + offset_l0
+            deg = int(np.frombuffer(data_l0[base:base+4].tobytes(), dtype=np.int32)[0])
+            nb_start = base + 4
+            nbs = np.frombuffer(data_l0[nb_start:nb_start + 4 * deg].tobytes(), dtype=np.uint32)
+            res[doc_id] = [inv.get(int(x), -1) for x in nbs.tolist()]
+        else:
+            if elem_lvls[internal] <= 0:
+                res[doc_id] = []
+                continue
+            pos = 0
+            for i in range(cur_count):
+                ll_size = size_links_per_elem * (elem_lvls[i] if elem_lvls[i] > 0 else 0)
+                if i == internal:
+                    break
+                pos += ll_size
+            if level > elem_lvls[internal]:
+                res[doc_id] = []
+                continue
+            base = pos + size_links_per_elem * (level - 1)
+            deg = int(np.frombuffer(link_lists[base:base+4].tobytes(), dtype=np.int32)[0])
+            nb_start = base + 4
+            nbs = np.frombuffer(link_lists[nb_start:nb_start + 4 * deg].tobytes(), dtype=np.uint32)
+            res[doc_id] = [inv.get(int(x), -1) for x in nbs.tolist()]
 
     if output_json:
-        import json
         print(json.dumps(res, ensure_ascii=False))
     else:
         for k in sorted(res.keys()):
@@ -99,6 +120,7 @@ def main():
     ap.add_argument("--index", required=True, help="index_cache 生成的索引路径（目录或文件）")
     ap.add_argument("--start", type=int, required=True)
     ap.add_argument("--end", type=int, required=True)
+    ap.add_argument("--level", type=int, default=0)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
@@ -114,7 +136,7 @@ def main():
 
     target_index = _resolve_index_file(args.index)
     idx = load_index(target_index, space, dim)
-    parse_l0_neighbors(idx, args.start, args.end, output_json=args.json)
+    parse_neighbors(idx, args.start, args.end, level=args.level, output_json=args.json)
 
 if __name__ == "__main__":
     main()
