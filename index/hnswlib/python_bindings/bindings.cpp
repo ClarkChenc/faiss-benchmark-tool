@@ -1080,6 +1080,8 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("getSearchCountByLabel", &Index<float>::getSearchCountByLabel)
         .def("getInDegreeByLabel", &Index<float>::getInDegreeByLabel)
         .def("getHitCount", &Index<float>::getHitCount)
+        .def("get_index_params", &Index<float>::getIndexParams)
+        .def("get_ann_data", &Index<float>::getAnnData)
 
         .def(py::pickle(
             [](const Index<float> &ind) {  // __getstate__
