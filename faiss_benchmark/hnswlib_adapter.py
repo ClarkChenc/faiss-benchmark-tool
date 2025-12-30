@@ -166,21 +166,18 @@ class HnswlibIndexAdapter:
             return
         return
 
-    def get_hit_search_count(self, query_size):
+    def get_indegree_node_hit_search_count(self, query_size):
         try:
             if hasattr(self._index, "getHitCount"):
                 hit_count = self._index.getHitCount()
                 hit_rate = float(hit_count) / float(query_size)
-
-                print(f"hit_count: {hit_count}")
-                print(f"query_size: {query_size}")
-                print(f"hit_rate: {hit_rate:.3%}")
+                print(f"indegree_node hit_rate: {hit_rate:.3%}")
         except Exception:
             return
         return
 
     def get_stat(self, query_size):
-        self.get_hit_search_count(query_size)
+        self.get_indegree_node_hit_search_count(query_size)
 
     # --- Cache/Serialization helpers ---
     def save_to_cache(self, path: str):
@@ -355,6 +352,19 @@ class HnswlibSplitIndexAdapter:
             except Exception:
                 pass
         return self.search(xq, topk)
+
+    def get_indegree_node_hit_search_count(self, query_size):
+        try:
+            if hasattr(self._merged_index, "getHitCount"):
+                hit_count = self._merged_index.getHitCount()
+                hit_rate = float(hit_count) / float(query_size)
+                print(f"indegree_node hit_rate: {hit_rate:.3%}")
+        except Exception:
+            return
+        return
+
+    def get_stat(self, query_size):
+        self.get_indegree_node_hit_search_count(query_size)
 
     def save_to_cache(self, path: str):
         os.makedirs(path, exist_ok=True)
