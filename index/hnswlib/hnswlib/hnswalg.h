@@ -1454,6 +1454,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::priority_queue<std::pair<dist_t, labeltype >> result;
         if (cur_element_count == 0) return result;
 
+        if (trigger_multi_entry_) {
+             // std::cout << "DEBUG: trigger_multi_entry_ is ON. maxlevel_: " << maxlevel_ << std::endl;
+        }
+
         tableint currObj = enterpoint_node_;
         dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
 

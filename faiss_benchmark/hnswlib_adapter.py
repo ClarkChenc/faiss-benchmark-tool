@@ -97,7 +97,7 @@ class HnswlibIndexAdapter:
                     pass
             if "trigger_multi_entry" in params:
                 try:
-                    self._index.trigger_multi_entry = bool(params["trigger_multi_entry"])
+                    self._index.set_trigger_multi_entry(bool(params["trigger_multi_entry"]))
                 except Exception:
                     pass
         return self.search(xq, topk)

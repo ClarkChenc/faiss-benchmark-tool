@@ -1044,6 +1044,12 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("get_ids_list", &Index<float>::getIdsList)
         .def("set_ef", &Index<float>::set_ef, py::arg("ef"))
         .def("set_keep_indegree_rate", &Index<float>::set_keep_indegree_rate, py::arg("rate"))
+        .def("set_trigger_multi_entry",
+            [](Index<float> & index, const bool trigger) {
+                if (index.appr_alg)
+                    index.appr_alg->trigger_multi_entry_ = trigger;
+            },
+            py::arg("trigger"))
         .def("set_num_threads", &Index<float>::set_num_threads, py::arg("num_threads"))
         .def("set_segment_boundaries", &Index<float>::set_segment_boundaries, py::arg("boundaries"))
         .def("get_hit_rate", &Index<float>::get_hit_rate)
