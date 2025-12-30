@@ -78,11 +78,11 @@ def load(cache_dir: str, dataset: str, index_type: str, build_params: dict | Non
                 seg_num=seg_num, 
                 segment_sizes=segment_sizes, 
                 num_threads=int(num_threads),
-                is_merge=is_merge,
-                build_params=build_params
+                is_merge=is_merge
             )
             return idx, meta
-        except Exception:
+        except Exception as e:
+            print(f"error: {e}")
             return None, None
     if "HNSWLIB" in index_type.upper():
         # Expect metadata to contain dimension, space, and max_elements
