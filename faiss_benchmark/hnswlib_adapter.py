@@ -224,10 +224,13 @@ class HnswlibSplitIndexAdapter:
         self.space = str(bp.get("space", "l2"))
         self.M = int(bp.get("M", 16))
         self.efConstruction = int(bp.get("efConstruction", 200))
-        try:
-            self.keep_indegree_rate = float(os.environ.get("KEEP_INDEGREE_RATE", "1.0"))
-        except Exception:
-            self.keep_indegree_rate = 1
+        if "keep_indegree_rate" in bp:
+             self.keep_indegree_rate = float(bp["keep_indegree_rate"])
+        else:
+            try:
+                self.keep_indegree_rate = float(os.environ.get("KEEP_INDEGREE_RATE", "1.0"))
+            except Exception:
+                self.keep_indegree_rate = 1.0
                 
         self.seg_num = int(bp.get("seg_num", 1))
         self.is_merge = bool(bp.get("is_merge", False))
@@ -360,9 +363,10 @@ class HnswlibSplitIndexAdapter:
                     pass
             if "trigger_multi_entry" in params:
                 try:
+                    print(f"Setting trigger_multi_entry to {bool(params['trigger_multi_entry'])}")
                     self._merged_index.set_trigger_multi_entry(bool(params["trigger_multi_entry"]))
                 except Exception as e:
-                    print(f"{e}")
+                    print(f"Failed to set trigger_multi_entry: {e}")
                     pass
 
         return self.search(xq, topk)

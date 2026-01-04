@@ -228,6 +228,50 @@ class Index {
         keep_indegree_rate_ = rate;
     }
 
+    py::list get_neighbors(size_t label, int level) {
+        if (!appr_alg) throw std::runtime_error("Index not initialized");
+        auto it = appr_alg->label_lookup_.find(label);
+        if (it == appr_alg->label_lookup_.end()) {
+            throw std::runtime_error("Label not found");
+        }
+        hnswlib::tableint id = it->second;
+        
+        std::vector<hnswlib::tableint> neighbors = appr_alg->template getNeighborIds<int>(id, level);
+        py::list ret;
+        for(auto neighbor : neighbors) {
+            ret.append(appr_alg->getExternalLabel(neighbor));
+        }
+        return ret;
+    }
+
+    py::list get_neighbor_distances(size_t label, int level) {
+        if (!appr_alg) throw std::runtime_error("Index not initialized");
+        
+        auto it = appr_alg->label_lookup_.find(label);
+        if (it == appr_alg->label_lookup_.end()) {
+            throw std::runtime_error("Label not found");
+        }
+        hnswlib::tableint id = it->second;
+
+        std::vector<float> dists;
+        std::vector<hnswlib::tableint> neighbors = appr_alg->template getNeighborIds<int>(id, level);
+        
+        std::vector<float> vec_data = appr_alg->template getDataByInternalId<float>(id);
+        
+        for(auto neighbor : neighbors) {
+            std::vector<float> neighbor_data = appr_alg->template getDataByInternalId<float>(neighbor);
+            float dist = appr_alg->fstdistfunc_(vec_data.data(), neighbor_data.data(), appr_alg->dist_func_param_);
+            dists.push_back(dist);
+        }
+        
+        py::list ret;
+        for(auto d : dists) {
+            ret.append(d);
+        }
+        return ret;
+    }
+
+
 
     void set_num_threads(int num_threads) {
         this->num_threads_default = num_threads;
@@ -1053,6 +1097,8 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("set_num_threads", &Index<float>::set_num_threads, py::arg("num_threads"))
         .def("set_segment_boundaries", &Index<float>::set_segment_boundaries, py::arg("boundaries"))
         .def("get_hit_rate", &Index<float>::get_hit_rate)
+        .def("get_neighbors", &Index<float>::get_neighbors)
+        .def("get_neighbor_distances", &Index<float>::get_neighbor_distances)
         .def("index_file_size", &Index<float>::indexFileSize)
         .def("save_index", &Index<float>::saveIndex, py::arg("path_to_index"))
         .def("load_index",

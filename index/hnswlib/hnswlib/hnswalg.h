@@ -424,6 +424,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             candidate_set.pop();
 
             tableint current_node_id = current_node_pair.second;
+
             int *data = (int *) get_linklist0(current_node_id);
             size_t size = getListCount((linklistsizeint*)data);
 //                bool cur_node_deleted = isMarkedDeleted(current_node_id);
@@ -754,6 +755,29 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return size;
     }
 
+    template<typename T>
+    std::vector<tableint> getNeighborIds(tableint internalId, int level) const {
+        std::vector<tableint> output;
+        if (level > maxlevel_) {
+            return output;
+        }
+        
+        linklistsizeint *ll_cur;
+        if (level == 0) {
+            ll_cur = get_linklist0(internalId);
+        } else {
+            ll_cur = get_linklist(internalId, level);
+        }
+        
+        int size = getListCount(ll_cur);
+        tableint *data = (tableint *) (ll_cur + 1);
+        
+        for (int i = 0; i < size; i++) {
+            output.push_back(data[i]);
+        }
+        return output;
+    }
+
     void saveIndex(const std::string &location) {
         std::ofstream output(location, std::ios::binary);
         std::streampos position;
@@ -896,6 +920,19 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return;
     }
 
+
+    template<typename data_t>
+    std::vector<data_t> getDataByInternalId(tableint internalId) const {
+        char* data_ptrv = getDataByInternalId(internalId);
+        size_t dim = *((size_t *) dist_func_param_);
+        std::vector<data_t> data;
+        data_t* data_ptr = (data_t*) data_ptrv;
+        for (size_t i = 0; i < dim; i++) {
+            data.push_back(*data_ptr);
+            data_ptr += 1;
+        }
+        return data;
+    }
 
     template<typename data_t>
     std::vector<data_t> getDataByLabel(labeltype label) const {
@@ -1501,14 +1538,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
 
-        if (false) {
-            std::cerr << "layer 0 entry point: " << currObj << std::endl;
-            std::string debug_str;
-            for (size_t i = 0; i < init_seeds.size(); ++i) {
-                debug_str += std::to_string(init_seeds[i]) + ", ";
-            }
-            std::cerr << debug_str << std::endl;
-        }
+
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         bool bare_bone_search = !num_deleted_ && !isIdAllowed;

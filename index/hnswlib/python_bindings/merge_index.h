@@ -83,6 +83,7 @@ Index<dist_t>* merge_indices(
             );
             // Build indegree map for refinement candidates (keep all nodes with indegree > 0)
             seg->buildIndegreeMap(keep_pruned_connections);
+            seg->ef_ = efConstruction; // Use high ef for better candidate search
             segments.push_back(seg);
             offsets.push_back(current_offset);
             current_offset += seg->cur_element_count;
@@ -319,23 +320,62 @@ Index<dist_t>* merge_indices(
         }
         std::cerr << "Refining Level 0: " << candidate_set.size() << " candidates with ratio " << ratio << std::endl;
         if (!candidate_set.empty()) {
-            auto t_build_start_l0 = std::chrono::steady_clock::now();
-            hnswlib::HierarchicalNSW<dist_t> cand_index(merged_index_wrapper->l2space, candidate_set.size(), M, efConstruction, random_seed);
-
-            #pragma omp parallel for schedule(static)
-            for (size_t i = 0; i < candidate_set.size(); ++i) {
-                void* p = out_alg->getDataByInternalId(candidate_set[i]);
-                cand_index.addPoint(p, (hnswlib::labeltype)candidate_set[i], false);
-            }
             size_t K = (size_t)(ratio * 2 * M);
-            cand_index.setEf(std::max(K * 2, (size_t)10));
-            auto t_build_end_l0 = std::chrono::steady_clock::now();
-            std::cerr << "\tLevel 0 build tmp index time cost: "
-                      << std::chrono::duration<double>(t_build_end_l0 - t_build_start_l0).count() << "s" << std::endl;
+            
             auto t_search_start_l0 = std::chrono::steady_clock::now();
-            refine_layer(candidate_set, cand_index, K, 0);
+            
+            #pragma omp parallel for schedule(dynamic)
+            for (size_t i = 0; i < candidate_set.size(); ++i) {
+                hnswlib::tableint u_id = candidate_set[i];
+                void* u_data = out_alg->getDataByInternalId(u_id);
+                
+                // Identify u's segment
+                auto it = std::upper_bound(boundaries.begin(), boundaries.end(), (size_t)u_id);
+                size_t u_seg_idx = std::distance(boundaries.begin(), it) - 1;
+
+                std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> top_candidates;
+
+                // 1. Collect candidates from other segments
+                for (size_t seg_idx = 0; seg_idx < segments.size(); ++seg_idx) {
+                    if (seg_idx == u_seg_idx) continue;
+                    
+                    // Search in segment (returns priority_queue of <dist, label>)
+                    auto res = segments[seg_idx]->searchKnn(u_data, K);
+                    
+                    while(!res.empty()) {
+                        auto item = res.top();
+                        res.pop();
+                        hnswlib::labeltype label = item.second;
+                        dist_t dist = item.first; // searchKnn returns positive distance
+                        
+                        // Map label to global internal ID
+                        if (out_alg->label_lookup_.count(label)) {
+                            hnswlib::tableint global_id = out_alg->label_lookup_.at(label);
+                            top_candidates.emplace(dist, global_id);
+                        }
+                    }
+                }
+                
+                // 3. Select best diverse neighbors (from remote segments only)
+                unsigned int* linklist = (unsigned int*)(out_alg->data_level0_memory_ + u_id * out_alg->size_data_per_element_ + out_alg->offsetLevel0_);
+                int cur_size = *linklist;
+                hnswlib::tableint* links = (hnswlib::tableint*)(linklist + 1);
+
+                size_t max_remote_links = out_alg->maxM0_ - cur_size;
+                if (max_remote_links > 0 && !top_candidates.empty()) {
+                    out_alg->getNeighborsByHeuristic2(top_candidates, max_remote_links);
+                
+                    // 4. Append remote neighbors to existing ones
+                    while (!top_candidates.empty() && cur_size < (int)out_alg->maxM0_) {
+                        links[cur_size++] = top_candidates.top().second;
+                        top_candidates.pop();
+                    }
+                    *linklist = cur_size;
+                }
+            }
+            
             auto t_search_end_l0 = std::chrono::steady_clock::now();
-            std::cerr << "\tLevel 0 candidate_set search cost: "
+            std::cerr << "\tLevel 0 search & refine cost: "
                       << std::chrono::duration<double>(t_search_end_l0 - t_search_start_l0).count() << "s" << std::endl;
         }
     }

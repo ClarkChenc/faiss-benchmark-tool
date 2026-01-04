@@ -1,6 +1,9 @@
 import os
 import json
-import faiss
+try:
+    import faiss
+except ImportError:
+    faiss = None
 
 def _normalize_build_params(build_params: dict | None) -> str:
     """Create a stable string from build params to form cache key."""

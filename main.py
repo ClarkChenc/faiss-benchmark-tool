@@ -102,7 +102,12 @@ def main():
     os.environ["OMP_MAX_ACTIVE_LEVELS"] = "1"
 
     # Import heavy libs after env setup so they honor thread limits
-    import faiss
+    try:
+        import faiss
+    except ImportError:
+        faiss = None
+        print("Warning: faiss module not found. Some functionality may be limited.")
+
     from faiss_benchmark.datasets import load_dataset, get_dataset_info
     from faiss_benchmark.indexes import create_index
     from faiss_benchmark.benchmark import build_index, build_index_batch, search_index
@@ -117,11 +122,14 @@ def main():
 
     # Set number of threads
     num_threads = int(config.get("num_threads", num_threads_env))
-    try:
-        faiss.omp_set_num_threads(num_threads)
-    except Exception as _thread_err:
-        print(f"Warning: failed to set Faiss threads: {_thread_err}")
-    print(f"Using {faiss.omp_get_max_threads()} threads for run")
+    if faiss:
+        try:
+            faiss.omp_set_num_threads(num_threads)
+        except Exception as _thread_err:
+            print(f"Warning: failed to set Faiss threads: {_thread_err}")
+        print(f"Using {faiss.omp_get_max_threads()} threads for run")
+    else:
+        print(f"Using {num_threads} threads (Faiss not available)")
     print(f"current env available cpu count: {os.cpu_count()}")
 
     dataset_name = config["dataset"]
@@ -196,7 +204,7 @@ def main():
         ignore_cache = bool(index_config.get("ignore_cache", ignore_cache_global))
         keep_indegree_rate = float(index_config.get("keep_indegree_rate", 1.0))
         os.environ["KEEP_INDEGREE_RATE"] = str(keep_indegree_rate)
-        print(f"KEEP_INDEGREE_RATE: {os.environ["KEEP_INDEGREE_RATE"]}")
+        print(f"KEEP_INDEGREE_RATE: {os.environ.get('KEEP_INDEGREE_RATE')}")
 
         # Show effective params after split
         print(f"\nTesting index: {index_type} | build_param={build_params} | search_param={search_params} | use_gpu={use_gpu}")
