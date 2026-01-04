@@ -330,25 +330,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         lowerBound = top_candidates.top().first;
                 }
             }
-            if (layer == 0) {
-                const auto& extra = l0_merge_neighbors_[curNodeNum];
-                for (size_t j = 0; j < extra.size(); j++) {
-                    tableint candidate_id = extra[j];
-                    if (visited_array[candidate_id] == visited_array_tag) continue;
-                    visited_array[candidate_id] = visited_array_tag;
-                    char *currObj1 = (getDataByInternalId(candidate_id));
-                    dist_t dist1 = fstdistfunc_(data_point, currObj1, dist_func_param_);
-                    if (top_candidates.size() < ef || lowerBound > dist1) {
-                        candidateSet.emplace(-dist1, candidate_id);
-                        if (!isMarkedDeleted(candidate_id))
-                            top_candidates.emplace(dist1, candidate_id);
-                        if (top_candidates.size() > ef)
-                            top_candidates.pop();
-                        if (!top_candidates.empty())
-                            lowerBound = top_candidates.top().first;
-                    }
-                }
-            }
         }
         visited_list_pool_->releaseVisitedList(vl);
 
@@ -525,6 +506,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
             {
                 const auto& extra = l0_merge_neighbors_[current_node_id];
+                // std::cerr << "extra size: " << extra.size() << std::endl;
                 for (size_t j = 0; j < extra.size(); j++) {
                     tableint candidate_id = extra[j];
                     if (!(visited_array[candidate_id] == visited_array_tag)) {
@@ -1551,7 +1533,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     data = (unsigned int *) get_linklist(currObj, level);
                     int size = getListCount(data);
-                    size = size * 0.5;
                     metric_hops++;
                     metric_distance_computations+=size;
 
