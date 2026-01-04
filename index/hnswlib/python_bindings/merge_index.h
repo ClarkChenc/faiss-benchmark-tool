@@ -196,31 +196,58 @@ Index<dist_t>* merge_indices(
                     linklist = (unsigned int*)(out_alg->linkLists_[u_id] + (level-1) * out_alg->size_links_per_element_);
                     links = (hnswlib::tableint*)(linklist + 1);
                 }
-                int cur_size = *linklist;
-                std::unordered_set<hnswlib::tableint> candidate_ids;
-                for(int k=0; k<cur_size; ++k) candidate_ids.insert(links[k]);
-                for(auto id : new_neighbors) candidate_ids.insert(id);
-
-                if (candidate_ids.size() <= max_links) {
-                    int k = 0;
-                    for (auto id : candidate_ids) {
-                        links[k++] = id;
+                if (level == 0) {
+                    int cur_size = *linklist;
+                    std::unordered_set<hnswlib::tableint> current_set;
+                    for(int k=0; k<cur_size; ++k) current_set.insert(links[k]);
+                    std::vector<hnswlib::tableint> filtered;
+                    for (auto id : new_neighbors) {
+                        if (current_set.find(id) == current_set.end()) filtered.push_back(id);
                     }
-                    *linklist = k;
+                    size_t K = (size_t)(ratio * 2 * out_alg->M_);
+                    if (filtered.empty()) {
+                        out_alg->l0_merge_neighbors_[u_id].clear();
+                    } else {
+                        std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> top_candidates;
+                        for (auto id : filtered) {
+                            void* neighbor_data = out_alg->getDataByInternalId(id);
+                            dist_t dist = out_alg->fstdistfunc_(u_data, neighbor_data, out_alg->dist_func_param_);
+                            top_candidates.emplace(dist, id);
+                        }
+                        out_alg->getNeighborsByHeuristic2(top_candidates, K);
+                        std::vector<hnswlib::tableint> selected;
+                        while (!top_candidates.empty()) {
+                            selected.push_back(top_candidates.top().second);
+                            top_candidates.pop();
+                        }
+                        out_alg->l0_merge_neighbors_[u_id] = std::move(selected);
+                    }
                 } else {
-                    std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> top_candidates;
-                    for (auto id : candidate_ids) {
-                        void* neighbor_data = out_alg->getDataByInternalId(id);
-                        dist_t dist = out_alg->fstdistfunc_(u_data, neighbor_data, out_alg->dist_func_param_);
-                        top_candidates.emplace(dist, id);
+                    int cur_size = *linklist;
+                    std::unordered_set<hnswlib::tableint> candidate_ids;
+                    for(int k=0; k<cur_size; ++k) candidate_ids.insert(links[k]);
+                    for(auto id : new_neighbors) candidate_ids.insert(id);
+                    if (candidate_ids.size() <= max_links) {
+                        int k = 0;
+                        for (auto id : candidate_ids) {
+                            links[k++] = id;
+                        }
+                        *linklist = k;
+                    } else {
+                        std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> top_candidates;
+                        for (auto id : candidate_ids) {
+                            void* neighbor_data = out_alg->getDataByInternalId(id);
+                            dist_t dist = out_alg->fstdistfunc_(u_data, neighbor_data, out_alg->dist_func_param_);
+                            top_candidates.emplace(dist, id);
+                        }
+                        out_alg->getNeighborsByHeuristic2(top_candidates, max_links);
+                        int k = 0;
+                        while (!top_candidates.empty()) {
+                            links[k++] = top_candidates.top().second;
+                            top_candidates.pop();
+                        }
+                        *linklist = k;
                     }
-                    out_alg->getNeighborsByHeuristic2(top_candidates, max_links);
-                    int k = 0;
-                    while (!top_candidates.empty()) {
-                        links[k++] = top_candidates.top().second;
-                        top_candidates.pop();
-                    }
-                    *linklist = k;
                 }
             }
         };
