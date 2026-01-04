@@ -77,7 +77,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     char *data_level0_memory_{nullptr};
     char **linkLists_{nullptr};
     std::vector<int> element_levels_;  // keeps level of each element
-    std::vector<std::vector<tableint>> l0_merge_neighbors_;
 
     size_t data_size_{0};
 
@@ -113,7 +112,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         bool allow_replace_deleted = false)
         : allow_replace_deleted_(allow_replace_deleted) {
         loadIndex(location, s, max_elements);
-        l0_merge_neighbors_.resize(max_elements_);
     }
 
 
@@ -172,7 +170,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
         mult_ = 1 / log(1.0 * M_);
         revSize_ = 1.0 / mult_;
-        l0_merge_neighbors_.resize(max_elements_);
     }
 
 
@@ -501,55 +498,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                         if (!top_candidates.empty())
                             lowerBound = top_candidates.top().first;
-                    }
-                }
-            }
-            {
-                const auto& extra = l0_merge_neighbors_[current_node_id];
-                // std::cerr << "extra size: " << extra.size() << std::endl;
-                for (size_t j = 0; j < extra.size(); j++) {
-                    tableint candidate_id = extra[j];
-                    if (!(visited_array[candidate_id] == visited_array_tag)) {
-                        visited_array[candidate_id] = visited_array_tag;
-                        if (indegree_map_.count(candidate_id) > 0) {
-                            is_hit_indegree_map_ = true;
-                        }
-                        char *currObj1 = (getDataByInternalId(candidate_id));
-                        dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
-                        bool flag_consider_candidate;
-                        if (!bare_bone_search && stop_condition) {
-                            flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
-                        } else {
-                            flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
-                        }
-                        if (flag_consider_candidate) {
-                            candidate_set.emplace(-dist, candidate_id);
-                            if (bare_bone_search || 
-                                (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
-                                top_candidates.emplace(dist, candidate_id);
-                                if (!bare_bone_search && stop_condition) {
-                                    stop_condition->add_point_to_result(getExternalLabel(candidate_id), currObj1, dist);
-                                }
-                            }
-                            bool flag_remove_extra = false;
-                            if (!bare_bone_search && stop_condition) {
-                                flag_remove_extra = stop_condition->should_remove_extra();
-                            } else {
-                                flag_remove_extra = top_candidates.size() > ef;
-                            }
-                            while (flag_remove_extra) {
-                                tableint id = top_candidates.top().second;
-                                top_candidates.pop();
-                                if (!bare_bone_search && stop_condition) {
-                                    stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), dist);
-                                    flag_remove_extra = stop_condition->should_remove_extra();
-                                } else {
-                                    flag_remove_extra = top_candidates.size() > ef;
-                                }
-                            }
-                            if (!top_candidates.empty())
-                                lowerBound = top_candidates.top().first;
-                        }
                     }
                 }
             }

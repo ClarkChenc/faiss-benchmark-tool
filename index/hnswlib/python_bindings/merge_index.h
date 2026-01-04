@@ -44,6 +44,29 @@ Index<dist_t>* merge_indices(
     Index<dist_t>* merged_index_wrapper = new Index<dist_t>(space_name, dim);
     merged_index_wrapper->init_new_index(total_max_elements, M, efConstruction, random_seed, false);
     hnswlib::HierarchicalNSW<dist_t>* out_alg = merged_index_wrapper->appr_alg;
+    {
+        size_t base_maxM0 = out_alg->maxM0_;
+        size_t add_extra = (size_t)(ratio * 2 * M);
+        size_t new_maxM0 = base_maxM0 + add_extra;
+        if (new_maxM0 > base_maxM0) {
+            if (out_alg->cur_element_count != 0) {
+                throw std::runtime_error("Merged index must be empty before expanding level0 capacity");
+            }
+            out_alg->maxM0_ = new_maxM0;
+            out_alg->size_links_level0_ = out_alg->maxM0_ * sizeof(hnswlib::tableint) + sizeof(hnswlib::linklistsizeint);
+            out_alg->size_data_per_element_ = out_alg->size_links_level0_ + out_alg->data_size_ + sizeof(hnswlib::labeltype);
+            out_alg->offsetData_ = out_alg->size_links_level0_;
+            out_alg->label_offset_ = out_alg->size_links_level0_ + out_alg->data_size_;
+            out_alg->offsetLevel0_ = 0;
+            if (out_alg->data_level0_memory_) {
+                free(out_alg->data_level0_memory_);
+            }
+            out_alg->data_level0_memory_ = (char *) malloc(out_alg->max_elements_ * out_alg->size_data_per_element_);
+            if (out_alg->data_level0_memory_ == nullptr) {
+                throw std::runtime_error("Not enough memory for expanded level0 capacity");
+            }
+        }
+    }
     
     // 2. Load all segments
     std::vector<hnswlib::HierarchicalNSW<dist_t>*> segments;
@@ -204,23 +227,23 @@ Index<dist_t>* merge_indices(
                     for (auto id : new_neighbors) {
                         if (current_set.find(id) == current_set.end()) filtered.push_back(id);
                     }
-                    size_t K = (size_t)(ratio * 2 * out_alg->M_);
-                    if (filtered.empty()) {
-                        out_alg->l0_merge_neighbors_[u_id].clear();
-                    } else {
+                    size_t desired_extra = (size_t)(ratio * 2 * out_alg->M_);
+                    size_t capacity_extra = (size_t)out_alg->maxM0_ - (size_t)cur_size;
+                    size_t K = std::min(desired_extra, capacity_extra);
+                    if (K > 0 && !filtered.empty()) {
                         std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> top_candidates;
                         for (auto id : filtered) {
                             void* neighbor_data = out_alg->getDataByInternalId(id);
                             dist_t dist = out_alg->fstdistfunc_(u_data, neighbor_data, out_alg->dist_func_param_);
                             top_candidates.emplace(dist, id);
                         }
-                        out_alg->getNeighborsByHeuristic2(top_candidates, K);
-                        std::vector<hnswlib::tableint> selected;
-                        while (!top_candidates.empty()) {
-                            selected.push_back(top_candidates.top().second);
+                        // We may have more filtered than K; use heuristic to select up to K best diverse neighbors
+                        out_alg->getNeighborsByHeuristic2(top_candidates, std::min(K, (size_t)filtered.size()));
+                        while (!top_candidates.empty() && cur_size < (int)out_alg->maxM0_) {
+                            links[cur_size++] = top_candidates.top().second;
                             top_candidates.pop();
                         }
-                        out_alg->l0_merge_neighbors_[u_id] = std::move(selected);
+                        *linklist = cur_size;
                     }
                 } else {
                     int cur_size = *linklist;
