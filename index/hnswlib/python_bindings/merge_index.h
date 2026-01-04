@@ -139,9 +139,21 @@ Index<dist_t>* merge_indices(
             
             // 4b. Level 0 Data (includes vector + links + label)
             char* src_data = seg->data_level0_memory_ + j * seg->size_data_per_element_;
-            char* dst_data = out_alg->data_level0_memory_ + new_id * out_alg->size_data_per_element_;
-            
-            memcpy(dst_data, src_data, out_alg->size_data_per_element_);
+             char* dst_data = out_alg->data_level0_memory_ + new_id * out_alg->size_data_per_element_;
+             
+             // Copy links and size (layout differs due to expanded capacity)
+             memcpy(dst_data + out_alg->offsetLevel0_, src_data + seg->offsetLevel0_, seg->size_links_level0_);
+             // Zero-fill the extra capacity region to avoid stale bytes being serialized
+             if (out_alg->size_links_level0_ > seg->size_links_level0_) {
+                 size_t extra = out_alg->size_links_level0_ - seg->size_links_level0_;
+                 memset(dst_data + out_alg->offsetLevel0_ + seg->size_links_level0_, 0, extra);
+             }
+ 
+             // Copy vector data
+             memcpy(dst_data + out_alg->offsetData_, src_data + seg->offsetData_, out_alg->data_size_);
+ 
+             // Copy label
+            memcpy(dst_data + out_alg->label_offset_, src_data + seg->label_offset_, sizeof(hnswlib::labeltype));
             
             // Relink Level 0
             unsigned int* linklist0 = (unsigned int*)(dst_data + out_alg->offsetLevel0_);
