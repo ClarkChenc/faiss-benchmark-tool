@@ -388,7 +388,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         top_candidates.emplace(sdist, sid);
                         if (!bare_bone_search && stop_condition) {
                             stop_condition->add_point_to_result(getExternalLabel(sid), sdata, sdist);
-                        }
+                        } 
                     }
                     while (!bare_bone_search && stop_condition ? stop_condition->should_remove_extra() : (top_candidates.size() > ef)) {
                         tableint id = top_candidates.top().second;
@@ -439,13 +439,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             _mm_prefetch((char *) (data + 2), _MM_HINT_T0);
 #endif
 
-            for (size_t j = 1; j <= size; j++) {
+            for (size_t j = 1; j <= (size_t)(size); j++) {
                 int candidate_id = *(data + j);
 //                    if (candidate_id == 0) continue;
 #ifdef USE_SSE
                 _mm_prefetch((char *) (visited_array + *(data + j + 1)), _MM_HINT_T0);
                 _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
-                                _MM_HINT_T0);  ////////////
+                                _MM_HINT_T0);
 #endif
                 if (!(visited_array[candidate_id] == visited_array_tag)) {
                     visited_array[candidate_id] = visited_array_tag;
@@ -1454,10 +1454,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::priority_queue<std::pair<dist_t, labeltype >> result;
         if (cur_element_count == 0) return result;
 
-        if (trigger_multi_entry_) {
-             // std::cout << "DEBUG: trigger_multi_entry_ is ON. maxlevel_: " << maxlevel_ << std::endl;
-        }
-
         tableint currObj = enterpoint_node_;
         dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
 
@@ -1485,6 +1481,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     data = (unsigned int *) get_linklist(currObj, level);
                     int size = getListCount(data);
+                    size = size * 0.5;
                     metric_hops++;
                     metric_distance_computations+=size;
 
@@ -1505,30 +1502,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
 
-        if (!trigger_multi_entry_ && maxlevel_ >= 1) {
-            unsigned int *data1 = (unsigned int *) get_linklist(currObj, 1);
-            int size1 = getListCount(data1);
-            tableint *datal1 = (tableint *) (data1 + 1);
-            std::vector<std::pair<dist_t, tableint>> neigh;
-            neigh.reserve(size1);
-            for (int i = 0; i < size1; i++) {
-                tableint cand = datal1[i];
-                dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
-                neigh.emplace_back(d, cand);
+        if (false) {
+            std::cerr << "layer 0 entry point: " << currObj << std::endl;
+            std::string debug_str;
+            for (size_t i = 0; i < init_seeds.size(); ++i) {
+                debug_str += std::to_string(init_seeds[i]) + ", ";
             }
-            if (!neigh.empty()) {
-                size_t kk = std::min((size_t)k, neigh.size());
-                std::nth_element(neigh.begin(), neigh.begin() + kk, neigh.end(),
-                                 [](const std::pair<dist_t, tableint>& a, const std::pair<dist_t, tableint>& b) {
-                                     return a.first < b.first;
-                                 });
-                neigh.resize(kk);
-                init_seeds.reserve(kk + 1);
-                init_seeds.push_back(currObj);
-                for (size_t i = 0; i < kk; ++i) {
-                    init_seeds.push_back(neigh[i].second);
-                }
-            }
+            std::cerr << debug_str << std::endl;
         }
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;

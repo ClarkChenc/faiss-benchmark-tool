@@ -98,7 +98,7 @@ class HnswlibIndexAdapter:
             if "trigger_multi_entry" in params:
                 try:
                     self._index.set_trigger_multi_entry(bool(params["trigger_multi_entry"]))
-                except Exception:
+                except Exception as e:
                     pass
         return self.search(xq, topk)
 
@@ -352,11 +352,19 @@ class HnswlibSplitIndexAdapter:
         return Dk_sorted, Ik_sorted
 
     def search_with_params(self, xq: np.ndarray, topk: int, params: dict | None = None):
-        if params and "efSearch" in params:
-            try:
-                self.hnsw.efSearch = int(params["efSearch"])
-            except Exception:
-                pass
+        if params:
+            if"efSearch" in params:
+                try:
+                    self.hnsw.efSearch = int(params["efSearch"])
+                except Exception:
+                    pass
+            if "trigger_multi_entry" in params:
+                try:
+                    self._merged_index.set_trigger_multi_entry(bool(params["trigger_multi_entry"]))
+                except Exception as e:
+                    print(f"{e}")
+                    pass
+
         return self.search(xq, topk)
 
     def get_indegree_node_hit_search_count(self, query_size):

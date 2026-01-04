@@ -156,6 +156,7 @@ def main():
             print("使用传统模式（全量加载）")
             xb, xq, gt = load_dataset(dataset_name)
 
+            # xq = xq[:5]
             print(f"Dataset loaded successfully!")
             print(f"Base vectors: {xb.shape}")
             print(f"Query vectors: {xq.shape}")
