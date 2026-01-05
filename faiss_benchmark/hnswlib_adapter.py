@@ -363,7 +363,6 @@ class HnswlibSplitIndexAdapter:
                     pass
             if "trigger_multi_entry" in params:
                 try:
-                    print(f"Setting trigger_multi_entry to {bool(params['trigger_multi_entry'])}")
                     self._merged_index.set_trigger_multi_entry(bool(params["trigger_multi_entry"]))
                 except Exception as e:
                     print(f"Failed to set trigger_multi_entry: {e}")

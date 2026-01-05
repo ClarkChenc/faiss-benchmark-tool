@@ -83,7 +83,7 @@ Index<dist_t>* merge_indices(
             );
             // Build indegree map for refinement candidates (keep all nodes with indegree > 0)
             seg->buildIndegreeMap(keep_pruned_connections);
-            seg->ef_ = efConstruction; // Use high ef for better candidate search
+            // seg->ef_ = efConstruction; // Use high ef for better candidate search
             segments.push_back(seg);
             offsets.push_back(current_offset);
             current_offset += seg->cur_element_count;
