@@ -23,7 +23,14 @@ def print_results(index_type, results, topk=10):
     recall_key = f"Recall@{topk}"
     print(f"{recall_key}: {results['recall']:.4f}")
     if 'hit_rate' in results:
-        hit, total = results['hit_rate']
-        if total > 0:
-            print(f"Entrypoint-majority hit rate: {hit/total:.3f} ({hit}/{total})")
+        hit_info = results['hit_rate']
+        if len(hit_info) == 3:
+             hit, total, indegree_hit = hit_info
+             if total > 0:
+                print(f"Entrypoint-majority hit rate: {hit/total:.3f} ({hit}/{total})")
+                print(f"Indegree node hit rate: {indegree_hit/total:.3f} ({indegree_hit}/{total})")
+        elif len(hit_info) == 2:
+            hit, total = hit_info
+            if total > 0:
+                print(f"Entrypoint-majority hit rate: {hit/total:.3f} ({hit}/{total})")
     print("-" * 40)

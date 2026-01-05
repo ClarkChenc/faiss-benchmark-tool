@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import numpy as np
 import inspect
@@ -36,6 +37,7 @@ class HnswlibIndexAdapter:
         self._index = None
         self._capacity = 0
         self._added = 0
+        self._last_build_added_count = 0
 
     # --- Build API ---
     def init_capacity(self, max_elements: int):
@@ -77,6 +79,12 @@ class HnswlibIndexAdapter:
     def search(self, xq: np.ndarray, topk: int):
         if self._index is None:
             raise RuntimeError("hnswlib search(): 索引尚未构建")
+        
+        if self._added != self._last_build_added_count:
+            if hasattr(self._index, "build_indegree_map"):
+                self._index.build_indegree_map(self.keep_indegree_rate)
+            self._last_build_added_count = self._added
+
         try:
             xq = np.asarray(xq, dtype=np.float32)
         except Exception:
@@ -174,7 +182,11 @@ class HnswlibIndexAdapter:
 
     def get_indegree_node_hit_search_count(self, query_size):
         try:
-            if hasattr(self._index, "getHitCount"):
+            if hasattr(self._index, "get_hit_rate"):
+                _, _, indegree_hits = self._index.get_hit_rate()
+                hit_rate = float(indegree_hits) / float(query_size)
+                print(f"indegree_node hit_rate: {hit_rate:.3%}")
+            elif hasattr(self._index, "getHitCount"):
                 hit_count = self._index.getHitCount()
                 hit_rate = float(hit_count) / float(query_size)
                 print(f"indegree_node hit_rate: {hit_rate:.3%}")
@@ -208,6 +220,7 @@ class HnswlibIndexAdapter:
             raise RuntimeError(f"加载 hnswlib 索引失败: {e}")
         inst._capacity = int(max_elements)
         inst._added = int(max_elements)  # assume fully populated
+        inst._last_build_added_count = int(max_elements)
         inst._num_threads = int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1"))
         
 
@@ -244,6 +257,7 @@ class HnswlibSplitIndexAdapter:
         self._capacity_total = 0
         self._added_total = 0
         self._merged_index = None
+        self._merged_index_map_built = False
         self.segment_sizes = None
 
         class _HnswParamsProxy:
@@ -317,6 +331,11 @@ class HnswlibSplitIndexAdapter:
 
     def search(self, xq: np.ndarray, topk: int):
         if self._merged_index:
+            if not self._merged_index_map_built:
+                if hasattr(self._merged_index, "build_indegree_map"):
+                    self._merged_index.build_indegree_map(self.keep_indegree_rate)
+                self._merged_index_map_built = True
+
             xq = np.asarray(xq, dtype=np.float32)
             if xq.ndim != 2 or xq.shape[1] != self.dimension:
                 raise RuntimeError(f"hnswlib search(): 维度不匹配，期望 {self.dimension}，得到 {xq.shape[1]}")
@@ -372,7 +391,11 @@ class HnswlibSplitIndexAdapter:
 
     def get_indegree_node_hit_search_count(self, query_size):
         try:
-            if hasattr(self._merged_index, "getHitCount"):
+            if hasattr(self._merged_index, "get_hit_rate"):
+                _, _, indegree_hits = self._merged_index.get_hit_rate()
+                hit_rate = float(indegree_hits) / float(query_size)
+                print(f"indegree_node hit_rate: {hit_rate:.3%}")
+            elif hasattr(self._merged_index, "getHitCount"):
                 hit_count = self._merged_index.getHitCount()
                 hit_rate = float(hit_count) / float(query_size)
                 print(f"indegree_node hit_rate: {hit_rate:.3%}")

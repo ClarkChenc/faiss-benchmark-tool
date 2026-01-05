@@ -1,3 +1,4 @@
+from __future__ import annotations
 import time
 import numpy as np
 from .datasets import load_base_vectors_batch
@@ -274,7 +275,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     if hasattr(index, "get_cumulative_hit_rate"):
         try:
             hit_rate_info = index.get_cumulative_hit_rate()
-            if isinstance(hit_rate_info, tuple) and len(hit_rate_info) == 2:
+            if isinstance(hit_rate_info, tuple) and len(hit_rate_info) >= 2:
                 result["hit_rate"] = hit_rate_info
         except Exception:
             pass

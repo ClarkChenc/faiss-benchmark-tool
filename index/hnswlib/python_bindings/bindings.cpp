@@ -228,6 +228,11 @@ class Index {
         keep_indegree_rate_ = rate;
     }
 
+    void buildIndegreeMap(float keep_ratio) {
+        if (appr_alg)
+            appr_alg->buildIndegreeMap(keep_ratio);
+    }
+
     py::list get_neighbors(size_t label, int level) {
         if (!appr_alg) throw std::runtime_error("Index not initialized");
         auto it = appr_alg->label_lookup_.find(label);
@@ -293,8 +298,8 @@ class Index {
 
     py::tuple get_hit_rate() {
         if (!appr_alg) throw std::runtime_error("Index not initialized");
-        std::pair<size_t, size_t> rate = appr_alg->getHitRate();
-        return py::make_tuple(rate.first, rate.second);
+        auto rate = appr_alg->getHitRate();
+        return py::make_tuple(std::get<0>(rate), std::get<1>(rate), std::get<2>(rate));
     }
 
     size_t indexFileSize() const {
@@ -1145,6 +1150,7 @@ PYBIND11_PLUGIN(hnswlib) {
         })
         .def("getSearchCountByLabel", &Index<float>::getSearchCountByLabel)
         .def("getInDegreeByLabel", &Index<float>::getInDegreeByLabel)
+        .def("build_indegree_map", &Index<float>::buildIndegreeMap, py::arg("keep_ratio") = 1.0)
         .def("getHitCount", &Index<float>::getHitCount)
         .def("get_index_params", &Index<float>::getIndexParams)
         .def("get_ann_data", &Index<float>::getAnnData)
