@@ -38,7 +38,8 @@ Index<dist_t>* merge_indices(
     size_t efConstruction,
     size_t random_seed,
     float extra_M_ratio = 1.0f,
-    float keep_pruned_connections = 1.0f
+    float keep_pruned_connections = 1.0f,
+    size_t merged_seg_num = 0
 ) {
     // 1. Initialize Merged Index Wrapper
     Index<dist_t>* merged_index_wrapper = new Index<dist_t>(space_name, dim);
@@ -68,28 +69,72 @@ Index<dist_t>* merge_indices(
         }
     }
     
-    // 2. Load all segments
+    // 2. Load all segments (support two-stage merge with merged_seg_num)
     std::vector<hnswlib::HierarchicalNSW<dist_t>*> segments;
+    std::vector<bool> seg_owned;
     segments.reserve(filenames.size());
+    seg_owned.reserve(filenames.size());
     std::vector<size_t> offsets;
     offsets.reserve(filenames.size());
     size_t current_offset = 0;
+    bool has_stage1_merged = false;
+    size_t stage1_merged_size = 0;
+    Index<dist_t>* stage1_wrapper_to_free = nullptr;
     
     try {
-        for (const auto& path : filenames) {
-            std::cerr << "Loading segment: " << path << std::endl;
-            hnswlib::HierarchicalNSW<dist_t>* seg = new hnswlib::HierarchicalNSW<dist_t>(
-                merged_index_wrapper->l2space, path, false, 0
+        if (merged_seg_num > 0 && merged_seg_num < filenames.size()) {
+            // Stage 1: merge the first merged_seg_num segments into one segment
+            std::vector<std::string> stage1_files(filenames.begin(), filenames.begin() + merged_seg_num);
+            stage1_wrapper_to_free = merge_indices<dist_t>(
+                stage1_files, space_name, dim, total_max_elements, M, efConstruction, random_seed,
+                extra_M_ratio, keep_pruned_connections, 0 /* ensure original method in stage1 */
             );
-            // Build indegree map for refinement candidates (keep all nodes with indegree > 0)
-            seg->buildIndegreeMap(keep_pruned_connections);
-            // seg->ef_ = efConstruction; // Use high ef for better candidate search
-            segments.push_back(seg);
+            if (!stage1_wrapper_to_free || !stage1_wrapper_to_free->appr_alg) {
+                throw std::runtime_error("Stage1 merge failed to produce a valid index");
+            }
+            hnswlib::HierarchicalNSW<dist_t>* stage1_seg = stage1_wrapper_to_free->appr_alg;
+            stage1_seg->buildIndegreeMap(keep_pruned_connections);
+            has_stage1_merged = true;
+            stage1_merged_size = stage1_seg->cur_element_count;
+            std::cerr << "Stage1 merged segment size: " << stage1_merged_size << std::endl;
+            segments.push_back(stage1_seg);
+            seg_owned.push_back(false); // owned by stage1_wrapper_to_free
             offsets.push_back(current_offset);
-            current_offset += seg->cur_element_count;
+            current_offset += stage1_seg->cur_element_count;
+            // Load the remaining segments
+            for (size_t i = merged_seg_num; i < filenames.size(); ++i) {
+                const auto& path = filenames[i];
+                std::cerr << "Loading segment: " << path << std::endl;
+                hnswlib::HierarchicalNSW<dist_t>* seg = new hnswlib::HierarchicalNSW<dist_t>(
+                    merged_index_wrapper->l2space, path, false, 0
+                );
+                seg->buildIndegreeMap(keep_pruned_connections);
+                segments.push_back(seg);
+                seg_owned.push_back(true);
+                offsets.push_back(current_offset);
+                current_offset += seg->cur_element_count;
+            }
+        } else {
+            // Original: load all segments directly
+            for (const auto& path : filenames) {
+                std::cerr << "Loading segment: " << path << std::endl;
+                hnswlib::HierarchicalNSW<dist_t>* seg = new hnswlib::HierarchicalNSW<dist_t>(
+                    merged_index_wrapper->l2space, path, false, 0
+                );
+                // Build indegree map for refinement candidates (keep all nodes with indegree > 0)
+                seg->buildIndegreeMap(keep_pruned_connections);
+                // seg->ef_ = efConstruction; // Use high ef for better candidate search
+                segments.push_back(seg);
+                seg_owned.push_back(true);
+                offsets.push_back(current_offset);
+                current_offset += seg->cur_element_count;
+            }
         }
     } catch (...) {
-        for (auto seg : segments) delete seg;
+        for (size_t i = 0; i < segments.size(); ++i) {
+            if (seg_owned[i]) delete segments[i];
+        }
+        if (stage1_wrapper_to_free) delete stage1_wrapper_to_free;
         delete merged_index_wrapper;
         throw;
     }
@@ -357,16 +402,35 @@ Index<dist_t>* merge_indices(
                 int cur_size = *linklist;
                 hnswlib::tableint* links = (hnswlib::tableint*)(linklist + 1);
 
-                size_t max_remote_links = out_alg->maxM0_ - cur_size;
-                if (max_remote_links > 0 && !top_candidates.empty()) {
-                    out_alg->getNeighborsByHeuristic2(top_candidates, max_remote_links);
-                
-                    // 4. Append remote neighbors to existing ones
-                    while (!top_candidates.empty() && cur_size < (int)out_alg->maxM0_) {
-                        links[cur_size++] = top_candidates.top().second;
-                        top_candidates.pop();
+                bool in_stage1_group = has_stage1_merged && (u_id < (hnswlib::tableint)stage1_merged_size);
+                if (!top_candidates.empty()) {
+                    if (in_stage1_group) {
+                        // Overwrite logic within Merge region for nodes in the merged segment from stage 1
+                        int native_limit = std::min(cur_size, (int)(2 * out_alg->M_));
+                        size_t capacity_merge_region = (size_t)out_alg->maxM0_ - (size_t)native_limit;
+                        size_t desired_merge_region = (size_t)(extra_M_ratio * 2 * out_alg->M_);
+                        size_t slots = std::min(capacity_merge_region, desired_merge_region);
+                        if (slots > 0) {
+                            out_alg->getNeighborsByHeuristic2(top_candidates, slots);
+                            size_t filled = 0;
+                            while (!top_candidates.empty() && filled < slots) {
+                                links[native_limit + (int)filled] = top_candidates.top().second;
+                                top_candidates.pop();
+                                ++filled;
+                            }
+                            int new_size = std::max(cur_size, native_limit + (int)filled);
+                            *linklist = new_size;
+                        }
+                    } else {
+                        // Default: append remote neighbors to existing ones
+                        size_t max_remote_links = out_alg->maxM0_ - cur_size;
+                        out_alg->getNeighborsByHeuristic2(top_candidates, max_remote_links);
+                        while (!top_candidates.empty() && cur_size < (int)out_alg->maxM0_) {
+                            links[cur_size++] = top_candidates.top().second;
+                            top_candidates.pop();
+                        }
+                        *linklist = cur_size;
                     }
-                    *linklist = cur_size;
                 }
             }
             
@@ -377,7 +441,10 @@ Index<dist_t>* merge_indices(
     }
 
     // Cleanup segments
-    for (auto seg : segments) delete seg;
+    for (size_t i = 0; i < segments.size(); ++i) {
+        if (seg_owned[i]) delete segments[i];
+    }
+    if (stage1_wrapper_to_free) delete stage1_wrapper_to_free;
     
     return merged_index_wrapper;
 }

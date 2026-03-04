@@ -1203,7 +1203,8 @@ PYBIND11_PLUGIN(hnswlib) {
         py::arg("ef_construction") = 200,
         py::arg("random_seed") = 100,
         py::arg("extra_M_ratio") = 1.0f,
-        py::arg("keep_pruned_connections") = 1.0f
+        py::arg("keep_pruned_connections") = 1.0f,
+        py::arg("merged_seg_num") = 0
     );
 
         return m.ptr();
