@@ -1,0 +1,31 @@
+# Faiss Benchmark Configuration Template
+
+# 数据集名称 (sift, gist, deep1b 等)
+dataset: "U2I312_1000w"
+
+# 返回的最近邻数量
+topk: 50
+
+# 延迟统计的微批大小（用于计算 avg/p99 延迟），默认 32
+latency_batch_size: 100
+
+# 预热查询数量（在正式计时前先跑若干查询以稳定 QPS/延迟）
+# 建议范围：100-1000。设置为 0 表示关闭预热。
+warmup_queries: 0
+
+# 线程数
+num_threads: 50
+
+# 索引类型配置
+index_types:
+  - index_type: "HNSWLIB_SPLIT"
+    index_param:
+      keep_indegree_rate: 0.1
+      M: 32
+      efConstruction: 200
+      seg_num: 3
+      is_merge:  true
+      merge_ratio: 0.5
+    search_param:
+      efSearch: 100
+

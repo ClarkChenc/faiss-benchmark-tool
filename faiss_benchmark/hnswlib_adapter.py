@@ -177,7 +177,7 @@ class HnswlibIndexAdapter:
             if hasattr(self._index, "getHitCount"):
                 hit_count = self._index.getHitCount()
                 hit_rate = float(hit_count) / float(query_size)
-                print(f"indegree_node hit_rate: {hit_rate:.3%}")
+                print(f"indegree_node hit_rate: {hit_rate:.3%}, query_count: {query_size}, hit_count: {hit_count}")
         except Exception:
             return
         return
@@ -375,7 +375,7 @@ class HnswlibSplitIndexAdapter:
             if hasattr(self._merged_index, "getHitCount"):
                 hit_count = self._merged_index.getHitCount()
                 hit_rate = float(hit_count) / float(query_size)
-                print(f"indegree_node hit_rate: {hit_rate:.3%}")
+                print(f"indegree_node hit_rate: {hit_rate:.3%}, query_size: {query_size}, hit_count: {hit_count}")
         except Exception:
             return
         return
@@ -405,7 +405,7 @@ class HnswlibSplitIndexAdapter:
                     M=self.M, 
                     ef_construction=self.efConstruction,
                     random_seed=100,
-                    ratio=self.merge_ratio,
+                    extra_M_ratio=self.merge_ratio,
                     keep_pruned_connections=self.keep_indegree_rate
                 )
                 merge_time = time.time() - start_time

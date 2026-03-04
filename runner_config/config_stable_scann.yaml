@@ -1,0 +1,49 @@
+# Faiss Benchmark Configuration Template
+# 复制此文件为 config.yaml 并根据需要修改参数
+
+# 数据集名称 (sift, gist, deep1b 等)
+dataset: "U2I312_1000w"
+
+# 返回的最近邻数量
+topk: 50
+
+# 延迟统计的微批大小（用于计算 avg/p99 延迟），默认 32
+latency_batch_size: 100
+
+# 预热查询数量（在正式计时前先跑若干查询以稳定 QPS/延迟）
+# 建议范围：100-1000。设置为 0 表示关闭预热。
+warmup_queries: 1000
+
+# 线程数
+num_threads: 10
+ignore_cache: false
+
+# 批处理配置（用于内存优化）
+batch_processing:
+  enabled: false            # 是否启用批处理模式（默认启用以避免 OOM）
+  batch_size: 100000      # 每批处理的向量数量
+  train_batch_size: 500000 # 训练时使用的批大小（通常可以更大）
+
+# 索引类型配置
+index_types:
+  # ScaNN（CPU ANN，低延迟点积/L2）
+  - index_type: "SCANN"
+    ignore_cache: true
+    index_param:
+      num_neighbors: 5               # 构建候选邻居数
+      num_leaves: 10000                # 可选：分区数量 2000
+      num_leaves_to_search: 100      # 可选：叶子大小. 50            
+      ah_bits: 2                      # 可选：AH 位数（1-4 常见）
+      ah_threshold: 0.2              # 可选：AH 阈值
+      reorder_k: 200                  # 可选：构建时开启重排，候选规模
+    search_param:
+      final_num_neighbors: 50         # 搜索阶段最终返回邻居数量（默认跟 topk）
+  
+  # HNSW 索引（分层导航小世界图）
+  # - index_type: "HNSWLIB"
+  #   ignore_cache: true
+  #   index_param:
+  #     M: 32
+  #     efConstruction: 200
+  #   search_param:
+  #     efSearch: 100

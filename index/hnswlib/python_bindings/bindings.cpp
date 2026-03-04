@@ -1,3 +1,5 @@
+
+
 #include <iostream>
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
@@ -12,6 +14,8 @@
 #include <stdlib.h>
 #include <assert.h>
 
+// #define USE_OMP
+
 namespace py = pybind11;
 using namespace pybind11::literals;  // needed to bring in _a literal
 
@@ -24,7 +28,7 @@ using namespace pybind11::literals;  // needed to bring in _a literal
  */
 template<class Function>
 inline void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn) {
-#ifdef _OPENMP
+#ifdef USE_OMP
     if (numThreads <= 0) {
         numThreads = omp_get_max_threads();
     }
@@ -32,7 +36,7 @@ inline void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn
 #pragma omp parallel num_threads(numThreads)
     {
         size_t threadId = 0;
-#ifdef _OPENMP
+#ifdef USE_OMP
         threadId = (size_t)omp_get_thread_num();
 #endif
 #pragma omp for schedule(static)
@@ -1192,7 +1196,7 @@ PYBIND11_PLUGIN(hnswlib) {
         py::arg("M") = 16,
         py::arg("ef_construction") = 200,
         py::arg("random_seed") = 100,
-        py::arg("ratio") = 1.0f,
+        py::arg("extra_M_ratio") = 1.0f,
         py::arg("keep_pruned_connections") = 1.0f
     );
 

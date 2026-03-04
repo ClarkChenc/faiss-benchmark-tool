@@ -37,7 +37,7 @@ Index<dist_t>* merge_indices(
     size_t M,
     size_t efConstruction,
     size_t random_seed,
-    float ratio = 1.0f,
+    float extra_M_ratio = 1.0f,
     float keep_pruned_connections = 1.0f
 ) {
     // 1. Initialize Merged Index Wrapper
@@ -46,7 +46,7 @@ Index<dist_t>* merge_indices(
     hnswlib::HierarchicalNSW<dist_t>* out_alg = merged_index_wrapper->appr_alg;
     {
         size_t base_maxM0 = out_alg->maxM0_;
-        size_t add_extra = (size_t)(ratio * 2 * M);
+        size_t add_extra = (size_t)(extra_M_ratio * 2 * M);
         size_t new_maxM0 = base_maxM0 + add_extra;
         if (new_maxM0 > base_maxM0) {
             if (out_alg->cur_element_count != 0) {
@@ -140,18 +140,14 @@ Index<dist_t>* merge_indices(
             
             // 4b. Level 0 Data (includes vector + links + label)
             char* src_data = seg->data_level0_memory_ + j * seg->size_data_per_element_;
-             char* dst_data = out_alg->data_level0_memory_ + new_id * out_alg->size_data_per_element_;
-             
-             // Copy links and size (layout differs due to expanded capacity)
-             memcpy(dst_data + out_alg->offsetLevel0_, src_data + seg->offsetLevel0_, seg->size_links_level0_);
-             // Zero-fill the extra capacity region to avoid stale bytes being serialized
-             if (out_alg->size_links_level0_ > seg->size_links_level0_) {
-                 size_t extra = out_alg->size_links_level0_ - seg->size_links_level0_;
-                 memset(dst_data + out_alg->offsetLevel0_ + seg->size_links_level0_, 0, extra);
-             }
- 
-             // Copy vector data
-             memcpy(dst_data + out_alg->offsetData_, src_data + seg->offsetData_, out_alg->data_size_);
+            char* dst_data = out_alg->data_level0_memory_ + new_id * out_alg->size_data_per_element_;
+            memset(dst_data, 0, out_alg->size_links_level0_);
+            
+            // Copy links and size (layout differs due to expanded capacity)
+            memcpy(dst_data + out_alg->offsetLevel0_, src_data + seg->offsetLevel0_, seg->size_links_level0_);
+
+            // Copy vector data
+            memcpy(dst_data + out_alg->offsetData_, src_data + seg->offsetData_, out_alg->data_size_);
  
              // Copy label
             memcpy(dst_data + out_alg->label_offset_, src_data + seg->label_offset_, sizeof(hnswlib::labeltype));
@@ -204,7 +200,7 @@ Index<dist_t>* merge_indices(
     boundaries.push_back(current_offset);
 
     // 5. Refinement
-    if (ratio > 0) {
+    if (extra_M_ratio > 0) {
         auto refine_layer = [&](const std::vector<hnswlib::tableint>& nodes,
                                 hnswlib::HierarchicalNSW<dist_t>& cand_index,
                                 size_t K,
@@ -240,7 +236,7 @@ Index<dist_t>* merge_indices(
                     for (auto id : new_neighbors) {
                         if (current_set.find(id) == current_set.end()) filtered.push_back(id);
                     }
-                    size_t desired_extra = (size_t)(ratio * 2 * out_alg->M_);
+                    size_t desired_extra = (size_t)(extra_M_ratio * 2 * out_alg->M_);
                     size_t capacity_extra = (size_t)out_alg->maxM0_ - (size_t)cur_size;
                     size_t K = std::min(desired_extra, capacity_extra);
                     if (K > 0 && !filtered.empty()) {
@@ -295,7 +291,7 @@ Index<dist_t>* merge_indices(
                 }
             }
             if (candidates.empty()) continue;
-            std::cerr << "Refining Level " << level << ": " << candidates.size() << " nodes with ratio " << ratio << std::endl;
+            std::cerr << "Refining Level " << level << ": " << candidates.size() << " nodes with extra_M_ratio " << extra_M_ratio << std::endl;
             auto t_build_start_lvl = std::chrono::steady_clock::now();
             hnswlib::HierarchicalNSW<dist_t> cand_index(merged_index_wrapper->l2space, candidates.size(), M, efConstruction, random_seed);
 
@@ -304,11 +300,11 @@ Index<dist_t>* merge_indices(
                 void* p = out_alg->getDataByInternalId(candidates[i]);
                 cand_index.addPoint(p, (hnswlib::labeltype)candidates[i], false);
             }
-            cand_index.setEf(std::max((size_t)std::ceil(ratio * M) * 2, (size_t)10));
+            cand_index.setEf(std::max((size_t)std::ceil(extra_M_ratio * M) * 2, (size_t)10));
             auto t_build_end_lvl = std::chrono::steady_clock::now();
             std::cerr << "\tLevel " << level << " build tmp index time cost: "
                       << std::chrono::duration<double>(t_build_end_lvl - t_build_start_lvl).count() << "s" << std::endl;
-            size_t K = (size_t)(ratio * M);
+            size_t K = (size_t)(extra_M_ratio * M);
             refine_layer(candidates, cand_index, K, level);
         }
         std::vector<hnswlib::tableint> candidate_set;
@@ -318,9 +314,9 @@ Index<dist_t>* merge_indices(
                 candidate_set.push_back(kv.first + offset);
             }
         }
-        std::cerr << "Refining Level 0: " << candidate_set.size() << " candidates with ratio " << ratio << std::endl;
+        std::cerr << "Refining Level 0: " << candidate_set.size() << " candidates with extra_M_ratio " << extra_M_ratio << std::endl;
         if (!candidate_set.empty()) {
-            size_t K = (size_t)(ratio * 2 * M);
+            size_t K = (size_t)(extra_M_ratio * 2 * M);
             
             auto t_search_start_l0 = std::chrono::steady_clock::now();
             
