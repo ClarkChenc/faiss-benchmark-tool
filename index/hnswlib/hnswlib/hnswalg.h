@@ -54,19 +54,21 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     std::vector<labeltype> segment_boundaries_;
     mutable std::atomic<size_t> total_queries_{0};
     mutable std::atomic<size_t> hit_queries_{0};
+    mutable std::atomic<size_t> indegree_hit_queries_{0};
 
     void setSegmentBoundaries(const std::vector<labeltype>& boundaries) {
         std::lock_guard<std::mutex> lock(global);
         segment_boundaries_ = boundaries;
     }
 
-    std::pair<size_t, size_t> getHitRate() const {
-        return {hit_queries_.load(), total_queries_.load()};
+    std::tuple<size_t, size_t, size_t> getHitRate() const {
+        return {hit_queries_.load(), total_queries_.load(), indegree_hit_queries_.load()};
     }
 
     void resetHitRate() {
         hit_queries_ = 0;
         total_queries_ = 0;
+        indegree_hit_queries_ = 0;
     }
 
     int getSegmentId(labeltype label) const {
@@ -507,6 +509,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         visited_list_pool_->releaseVisitedList(vl);
         if (is_hit_indegree_map_) {
             hit_count_.fetch_add(1, std::memory_order_relaxed);
+            indegree_hit_queries_.fetch_add(1, std::memory_order_relaxed);
         }
 
         return top_candidates;
@@ -1506,6 +1509,24 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                      init_seeds.push_back(top_candidates.top().second);
                      top_candidates.pop();
                  }
+                 
+                 // Debug: Check segment distribution of seeds
+                 if (!init_seeds.empty() && total_queries_ < 20 && !segment_boundaries_.empty()) {
+                     std::vector<int> seed_segs;
+                     for(auto sid : init_seeds) {
+                         labeltype l = getExternalLabel(sid);
+                         seed_segs.push_back(getSegmentId(l));
+                     }
+                     std::sort(seed_segs.begin(), seed_segs.end());
+                     auto last = std::unique(seed_segs.begin(), seed_segs.end());
+                     seed_segs.erase(last, seed_segs.end());
+                     
+                     std::cout << "Query " << total_queries_ << " seeds count: " << init_seeds.size() 
+                               << " unique segments: " << seed_segs.size() << " Segs: ";
+                     for(auto s : seed_segs) std::cout << s << " ";
+                     std::cout << std::endl;
+                 }
+
                  if (!init_seeds.empty()) {
                      currObj = init_seeds.back();
                      curdist = fstdistfunc_(query_data, getDataByInternalId(currObj), dist_func_param_);
