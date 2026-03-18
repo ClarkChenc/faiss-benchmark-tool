@@ -281,7 +281,7 @@ Index<dist_t>* merge_indices(
                     for (auto id : new_neighbors) {
                         if (current_set.find(id) == current_set.end()) filtered.push_back(id);
                     }
-                    size_t desired_extra = (size_t)(extra_M_ratio * 2 * out_alg->M_);
+                    size_t desired_extra = (size_t)(extra_M_ratio * out_alg->M_);
                     size_t capacity_extra = (size_t)out_alg->maxM0_ - (size_t)cur_size;
                     size_t K = std::min(desired_extra, capacity_extra);
                     if (K > 0 && !filtered.empty()) {
@@ -361,7 +361,7 @@ Index<dist_t>* merge_indices(
         }
         std::cerr << "Refining Level 0: " << candidate_set.size() << " candidates with extra_M_ratio " << extra_M_ratio << std::endl;
         if (!candidate_set.empty()) {
-            size_t K = (size_t)(extra_M_ratio * 2 * M);
+            size_t K = (size_t)(extra_M_ratio * M);
             
             auto t_search_start_l0 = std::chrono::steady_clock::now();
             
@@ -408,7 +408,7 @@ Index<dist_t>* merge_indices(
                         // Overwrite logic within Merge region for nodes in the merged segment from stage 1
                         int native_limit = std::min(cur_size, (int)(2 * out_alg->M_));
                         size_t capacity_merge_region = (size_t)out_alg->maxM0_ - (size_t)native_limit;
-                        size_t desired_merge_region = (size_t)(extra_M_ratio * 2 * out_alg->M_);
+                        size_t desired_merge_region = (size_t)(extra_M_ratio * out_alg->M_);
                         size_t slots = std::min(capacity_merge_region, desired_merge_region);
                         if (slots > 0) {
                             out_alg->getNeighborsByHeuristic2(top_candidates, slots);
@@ -423,11 +423,14 @@ Index<dist_t>* merge_indices(
                         }
                     } else {
                         // Default: append remote neighbors to existing ones
-                        size_t max_remote_links = out_alg->maxM0_ - cur_size;
-                        out_alg->getNeighborsByHeuristic2(top_candidates, max_remote_links);
-                        while (!top_candidates.empty() && cur_size < (int)out_alg->maxM0_) {
+                        size_t capacity = out_alg->maxM0_ - cur_size;
+                        size_t slots = std::min(capacity, (size_t)(extra_M_ratio * out_alg->M_));
+                        out_alg->getNeighborsByHeuristic2(top_candidates, slots);
+                        size_t used = 0;
+                        while (!top_candidates.empty() && used < slots) {
                             links[cur_size++] = top_candidates.top().second;
                             top_candidates.pop();
+                            ++used;
                         }
                         *linklist = cur_size;
                     }

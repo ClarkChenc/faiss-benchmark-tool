@@ -1509,23 +1509,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                      init_seeds.push_back(top_candidates.top().second);
                      top_candidates.pop();
                  }
-                 
-                 // Debug: Check segment distribution of seeds
-                 if (!init_seeds.empty() && total_queries_ < 20 && !segment_boundaries_.empty()) {
-                     std::vector<int> seed_segs;
-                     for(auto sid : init_seeds) {
-                         labeltype l = getExternalLabel(sid);
-                         seed_segs.push_back(getSegmentId(l));
-                     }
-                     std::sort(seed_segs.begin(), seed_segs.end());
-                     auto last = std::unique(seed_segs.begin(), seed_segs.end());
-                     seed_segs.erase(last, seed_segs.end());
-                     
-                     std::cout << "Query " << total_queries_ << " seeds count: " << init_seeds.size() 
-                               << " unique segments: " << seed_segs.size() << " Segs: ";
-                     for(auto s : seed_segs) std::cout << s << " ";
-                     std::cout << std::endl;
-                 }
+                
 
                  if (!init_seeds.empty()) {
                      currObj = init_seeds.back();
