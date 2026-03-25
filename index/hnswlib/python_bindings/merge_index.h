@@ -408,6 +408,10 @@ Index<dist_t>* merge_indices(
 
                 if (!use_extra_space) {
                     if (top_candidates.empty()) continue;
+                    size_t outer_budget = std::max((size_t)4, (size_t)std::ceil(extra_M_ratio * out_alg->M_));
+                    if (top_candidates.size() > outer_budget) {
+                        out_alg->getNeighborsByHeuristic2(top_candidates, outer_budget);
+                    }
                     std::unordered_set<hnswlib::tableint> uniq;
                     std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> all_candidates;
                     for (int k = 0; k < cur_size; ++k) {
