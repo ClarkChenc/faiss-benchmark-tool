@@ -65,13 +65,27 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         indegree_hit_queries_ = 0;
     }
 
-    std::tuple<long, long, size_t> getSearchMetrics() const {
-        return {metric_hops.load(), metric_distance_computations.load(), search_queries_.load()};
+    std::tuple<long, long, long, long, long, long, long, size_t> getSearchMetrics() const {
+        return {
+            metric_hops.load(),
+            metric_distance_computations.load(),
+            metric_neighbor_iters_.load(),
+            metric_candidate_set_push_.load(),
+            metric_candidate_set_pop_.load(),
+            metric_top_candidates_push_.load(),
+            metric_top_candidates_pop_.load(),
+            search_queries_.load()
+        };
     }
 
     void resetSearchMetrics() const {
         metric_hops.store(0, std::memory_order_relaxed);
         metric_distance_computations.store(0, std::memory_order_relaxed);
+        metric_neighbor_iters_.store(0, std::memory_order_relaxed);
+        metric_candidate_set_push_.store(0, std::memory_order_relaxed);
+        metric_candidate_set_pop_.store(0, std::memory_order_relaxed);
+        metric_top_candidates_push_.store(0, std::memory_order_relaxed);
+        metric_top_candidates_pop_.store(0, std::memory_order_relaxed);
         search_queries_.store(0, std::memory_order_relaxed);
     }
 
@@ -95,6 +109,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     mutable std::atomic<long> metric_distance_computations{0};
     mutable std::atomic<long> metric_hops{0};
+    mutable std::atomic<long> metric_neighbor_iters_{0};
+    mutable std::atomic<long> metric_candidate_set_push_{0};
+    mutable std::atomic<long> metric_candidate_set_pop_{0};
+    mutable std::atomic<long> metric_top_candidates_push_{0};
+    mutable std::atomic<long> metric_top_candidates_pop_{0};
     mutable std::atomic<size_t> search_queries_{0};
 
     bool allow_replace_deleted_ = false;  // flag to replace deleted elements (marked as deleted) during insertions
@@ -348,6 +367,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         const std::vector<tableint>* initial_seeds = nullptr) const {
         long local_hops = 0;
         long local_dist = 0;
+        long local_neighbor_iters = 0;
+        long local_cand_push = 0;
+        long local_cand_pop = 0;
+        long local_top_push = 0;
+        long local_top_pop = 0;
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
@@ -365,13 +389,16 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             dist_t dist = fstdistfunc_(data_point, ep_data, dist_func_param_);
             lowerBound = dist;
             top_candidates.emplace(dist, ep_id);
+            if (collect_metrics) local_top_push++;
             if (!bare_bone_search && stop_condition) {
                 stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
             }
             candidate_set.emplace(-dist, ep_id);
+            if (collect_metrics) local_cand_push++;
         } else {
             lowerBound = std::numeric_limits<dist_t>::max();
             candidate_set.emplace(-lowerBound, ep_id);
+            if (collect_metrics) local_cand_push++;
         }
 
         visited_array[ep_id] = visited_array_tag;
@@ -389,9 +416,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 bool consider = top_candidates.size() < ef || lowerBound > sdist;
                 if (consider) {
                     candidate_set.emplace(-sdist, sid);
+                    if (collect_metrics) local_cand_push++;
                     if (bare_bone_search || 
                         (!isMarkedDeleted(sid) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(sid))))) {
                         top_candidates.emplace(sdist, sid);
+                        if (collect_metrics) local_top_push++;
                         if (!bare_bone_search && stop_condition) {
                             stop_condition->add_point_to_result(getExternalLabel(sid), sdata, sdist);
                         } 
@@ -399,6 +428,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     while (!bare_bone_search && stop_condition ? stop_condition->should_remove_extra() : (top_candidates.size() > ef)) {
                         tableint id = top_candidates.top().second;
                         top_candidates.pop();
+                        if (collect_metrics) local_top_pop++;
                         if (!bare_bone_search && stop_condition) {
                             stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), sdist);
                         }
@@ -428,6 +458,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 break;
             }
             candidate_set.pop();
+            if (collect_metrics) local_cand_pop++;
 
             tableint current_node_id = current_node_pair.second;
 
@@ -436,7 +467,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 //                bool cur_node_deleted = isMarkedDeleted(current_node_id);
             if (collect_metrics) {
                 local_hops++;
-                local_dist += (long)size;
+                local_neighbor_iters += (long)size;
             }
 
 #ifdef USE_SSE
@@ -473,6 +504,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     if (flag_consider_candidate) {
                         candidate_set.emplace(-dist, candidate_id);
+                        if (collect_metrics) local_cand_push++;
 #ifdef USE_SSE
                         _mm_prefetch(data_level0_memory_ + candidate_set.top().second * size_data_per_element_ +
                                         offsetLevel0_,  ///////////
@@ -482,6 +514,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         if (bare_bone_search || 
                             (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
                             top_candidates.emplace(dist, candidate_id);
+                            if (collect_metrics) local_top_push++;
                             if (!bare_bone_search && stop_condition) {
                                 stop_condition->add_point_to_result(getExternalLabel(candidate_id), currObj1, dist);
                             }
@@ -496,6 +529,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         while (flag_remove_extra) {
                             tableint id = top_candidates.top().second;
                             top_candidates.pop();
+                            if (collect_metrics) local_top_pop++;
                             if (!bare_bone_search && stop_condition) {
                                 stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), dist);
                                 flag_remove_extra = stop_condition->should_remove_extra();
@@ -515,6 +549,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         if (collect_metrics) {
             metric_hops.fetch_add(local_hops, std::memory_order_relaxed);
             metric_distance_computations.fetch_add(local_dist, std::memory_order_relaxed);
+            metric_neighbor_iters_.fetch_add(local_neighbor_iters, std::memory_order_relaxed);
+            metric_candidate_set_push_.fetch_add(local_cand_push, std::memory_order_relaxed);
+            metric_candidate_set_pop_.fetch_add(local_cand_pop, std::memory_order_relaxed);
+            metric_top_candidates_push_.fetch_add(local_top_push, std::memory_order_relaxed);
+            metric_top_candidates_pop_.fetch_add(local_top_pop, std::memory_order_relaxed);
         }
         if (is_hit_indegree_map_) {
             hit_count_.fetch_add(1, std::memory_order_relaxed);

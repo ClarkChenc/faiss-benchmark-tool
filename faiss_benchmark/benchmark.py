@@ -255,10 +255,22 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         if hasattr(index, "get_search_metrics"):
             m = index.get_search_metrics()
             if m is not None and isinstance(m, tuple) and len(m) == 3:
-                hops, dist_comps, q = m
+                hops, dist_calls, q = m
                 result_search_metrics = {
                     "search_hops_total": int(hops),
-                    "search_dist_computations_total": int(dist_comps),
+                    "search_dist_computations_total": int(dist_calls),
+                    "search_queries_count": int(q),
+                }
+            elif m is not None and isinstance(m, tuple) and len(m) == 8:
+                hops, dist_calls, neighbor_iters, cand_push, cand_pop, top_push, top_pop, q = m
+                result_search_metrics = {
+                    "search_hops_total": int(hops),
+                    "search_dist_computations_total": int(dist_calls),
+                    "search_neighbor_iters_total": int(neighbor_iters),
+                    "search_candidate_set_push_total": int(cand_push),
+                    "search_candidate_set_pop_total": int(cand_pop),
+                    "search_top_candidates_push_total": int(top_push),
+                    "search_top_candidates_pop_total": int(top_pop),
                     "search_queries_count": int(q),
                 }
             else:

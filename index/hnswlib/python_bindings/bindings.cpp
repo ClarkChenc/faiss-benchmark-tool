@@ -314,7 +314,16 @@ class Index {
     py::tuple get_search_metrics() {
         if (!appr_alg) throw std::runtime_error("Index not initialized");
         auto m = appr_alg->getSearchMetrics();
-        return py::make_tuple(std::get<0>(m), std::get<1>(m), std::get<2>(m));
+        return py::make_tuple(
+            std::get<0>(m),
+            std::get<1>(m),
+            std::get<2>(m),
+            std::get<3>(m),
+            std::get<4>(m),
+            std::get<5>(m),
+            std::get<6>(m),
+            std::get<7>(m)
+        );
     }
 
     size_t indexFileSize() const {

@@ -32,6 +32,31 @@ def print_results(index_type, results, topk=10):
         if q > 0:
             avg_dc = float(results.get("search_dist_computations_total", 0)) / float(q)
             print(f"Avg distance calls/query: {avg_dc:.2f}")
+    if "search_neighbor_iters_total" in results and "search_queries_count" in results:
+        q = int(results.get("search_queries_count") or 0)
+        if q > 0:
+            avg_iters = float(results.get("search_neighbor_iters_total", 0)) / float(q)
+            print(f"Avg neighbor iters/query: {avg_iters:.2f}")
+    if "search_candidate_set_push_total" in results and "search_queries_count" in results:
+        q = int(results.get("search_queries_count") or 0)
+        if q > 0:
+            avg_push = float(results.get("search_candidate_set_push_total", 0)) / float(q)
+            print(f"Avg candidate_set push/query: {avg_push:.2f}")
+    if "search_candidate_set_pop_total" in results and "search_queries_count" in results:
+        q = int(results.get("search_queries_count") or 0)
+        if q > 0:
+            avg_pop = float(results.get("search_candidate_set_pop_total", 0)) / float(q)
+            print(f"Avg candidate_set pop/query: {avg_pop:.2f}")
+    if "search_top_candidates_push_total" in results and "search_queries_count" in results:
+        q = int(results.get("search_queries_count") or 0)
+        if q > 0:
+            avg_push = float(results.get("search_top_candidates_push_total", 0)) / float(q)
+            print(f"Avg top_candidates push/query: {avg_push:.2f}")
+    if "search_top_candidates_pop_total" in results and "search_queries_count" in results:
+        q = int(results.get("search_queries_count") or 0)
+        if q > 0:
+            avg_pop = float(results.get("search_top_candidates_pop_total", 0)) / float(q)
+            print(f"Avg top_candidates pop/query: {avg_pop:.2f}")
     if 'hit_rate' in results:
         hit_info = results['hit_rate']
         if len(hit_info) == 2:
