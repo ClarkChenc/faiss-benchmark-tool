@@ -31,7 +31,7 @@ def print_results(index_type, results, topk=10):
         q = int(results.get("search_queries_count") or 0)
         if q > 0:
             avg_dc = float(results.get("search_dist_computations_total", 0)) / float(q)
-            print(f"Avg dist comps/query: {avg_dc:.2f}")
+            print(f"Avg distance calls/query: {avg_dc:.2f}")
     if 'hit_rate' in results:
         hit_info = results['hit_rate']
         if len(hit_info) == 3:

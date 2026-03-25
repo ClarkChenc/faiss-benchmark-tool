@@ -38,6 +38,7 @@ class HnswlibIndexAdapter:
         self._capacity = 0
         self._added = 0
         self._last_build_added_count = 0
+        self._segment_boundaries_set = False
 
     # --- Build API ---
     def init_capacity(self, max_elements: int):
@@ -74,6 +75,12 @@ class HnswlibIndexAdapter:
             )
         self._index.add_items(xb)
         self._added += int(xb.shape[0])
+        if (not self._segment_boundaries_set) and hasattr(self._index, "set_segment_boundaries"):
+            try:
+                self._index.set_segment_boundaries(np.array([self._added], dtype=np.uint64))
+                self._segment_boundaries_set = True
+            except Exception:
+                pass
 
     # --- Search API ---
     def search(self, xq: np.ndarray, topk: int):
@@ -236,6 +243,12 @@ class HnswlibIndexAdapter:
         inst._capacity = int(max_elements)
         inst._added = int(max_elements)  # assume fully populated
         inst._last_build_added_count = int(max_elements)
+        if hasattr(inst._index, "set_segment_boundaries"):
+            try:
+                inst._index.set_segment_boundaries(np.array([inst._added], dtype=np.uint64))
+                inst._segment_boundaries_set = True
+            except Exception:
+                pass
         inst._num_threads = int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1"))
         
 
