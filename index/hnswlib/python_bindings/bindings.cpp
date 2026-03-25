@@ -8,7 +8,7 @@
 #include "hnswlib.h"
 #include <thread>
 #include <atomic>
-#ifdef _OPENMP
+#ifdef USE_OMP
 #include <omp.h>
 #endif
 #include <stdlib.h>
@@ -304,6 +304,17 @@ class Index {
         if (!appr_alg) throw std::runtime_error("Index not initialized");
         auto rate = appr_alg->getHitRate();
         return py::make_tuple(std::get<0>(rate), std::get<1>(rate), std::get<2>(rate));
+    }
+
+    void reset_search_metrics() {
+        if (!appr_alg) throw std::runtime_error("Index not initialized");
+        appr_alg->resetSearchMetrics();
+    }
+
+    py::tuple get_search_metrics() {
+        if (!appr_alg) throw std::runtime_error("Index not initialized");
+        auto m = appr_alg->getSearchMetrics();
+        return py::make_tuple(std::get<0>(m), std::get<1>(m), std::get<2>(m));
     }
 
     size_t indexFileSize() const {
@@ -1106,6 +1117,8 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("set_num_threads", &Index<float>::set_num_threads, py::arg("num_threads"))
         .def("set_segment_boundaries", &Index<float>::set_segment_boundaries, py::arg("boundaries"))
         .def("get_hit_rate", &Index<float>::get_hit_rate)
+        .def("reset_search_metrics", &Index<float>::reset_search_metrics)
+        .def("get_search_metrics", &Index<float>::get_search_metrics)
         .def("get_neighbors", &Index<float>::get_neighbors)
         .def("get_neighbor_distances", &Index<float>::get_neighbor_distances)
         .def("index_file_size", &Index<float>::indexFileSize)

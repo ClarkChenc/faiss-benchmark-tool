@@ -71,6 +71,16 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         indegree_hit_queries_ = 0;
     }
 
+    std::tuple<long, long, size_t> getSearchMetrics() const {
+        return {metric_hops.load(), metric_distance_computations.load(), search_queries_.load()};
+    }
+
+    void resetSearchMetrics() const {
+        metric_hops.store(0, std::memory_order_relaxed);
+        metric_distance_computations.store(0, std::memory_order_relaxed);
+        search_queries_.store(0, std::memory_order_relaxed);
+    }
+
     int getSegmentId(labeltype label) const {
         auto it = std::upper_bound(segment_boundaries_.begin(), segment_boundaries_.end(), label);
         return (int)std::distance(segment_boundaries_.begin(), it);
@@ -96,6 +106,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     mutable std::atomic<long> metric_distance_computations{0};
     mutable std::atomic<long> metric_hops{0};
+    mutable std::atomic<size_t> search_queries_{0};
 
     bool allow_replace_deleted_ = false;  // flag to replace deleted elements (marked as deleted) during insertions
 
@@ -346,6 +357,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         BaseFilterFunctor* isIdAllowed = nullptr,
         BaseSearchStopCondition<dist_t>* stop_condition = nullptr,
         const std::vector<tableint>* initial_seeds = nullptr) const {
+        long local_hops = 0;
+        long local_dist = 0;
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
@@ -431,8 +444,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             size_t size = getListCount((linklistsizeint*)data);
 //                bool cur_node_deleted = isMarkedDeleted(current_node_id);
             if (collect_metrics) {
-                metric_hops++;
-                metric_distance_computations+=size;
+                local_hops++;
+                local_dist += (long)size;
             }
 
 #ifdef USE_SSE
@@ -507,6 +520,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         visited_list_pool_->releaseVisitedList(vl);
+        if (collect_metrics) {
+            metric_hops.fetch_add(local_hops, std::memory_order_relaxed);
+            metric_distance_computations.fetch_add(local_dist, std::memory_order_relaxed);
+        }
         if (is_hit_indegree_map_) {
             hit_count_.fetch_add(1, std::memory_order_relaxed);
             indegree_hit_queries_.fetch_add(1, std::memory_order_relaxed);
@@ -1494,6 +1511,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::priority_queue<std::pair<dist_t, labeltype >> result;
         if (cur_element_count == 0) return result;
 
+        search_queries_.fetch_add(1, std::memory_order_relaxed);
+        long local_upper_hops = 0;
+        long local_upper_dist = 0;
+
         tableint currObj = enterpoint_node_;
         dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
 
@@ -1523,8 +1544,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     data = (unsigned int *) get_linklist(currObj, level);
                     int size = getListCount(data);
-                    metric_hops++;
-                    metric_distance_computations+=size;
+                    local_upper_hops++;
+                    local_upper_dist += (long)size;
 
                     tableint *datal = (tableint *) (data + 1);
                     for (int i = 0; i < size; i++) {
@@ -1543,15 +1564,18 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
 
+        metric_hops.fetch_add(local_upper_hops, std::memory_order_relaxed);
+        metric_distance_computations.fetch_add(local_upper_dist, std::memory_order_relaxed);
+
 
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         bool bare_bone_search = !num_deleted_ && !isIdAllowed;
         if (bare_bone_search) {
-            top_candidates = searchBaseLayerST<true>(
+            top_candidates = searchBaseLayerST<true, true>(
                     currObj, query_data, std::max(ef_, k), isIdAllowed, nullptr, init_seeds.empty() ? nullptr : &init_seeds);
         } else {
-            top_candidates = searchBaseLayerST<false>(
+            top_candidates = searchBaseLayerST<false, true>(
                     currObj, query_data, std::max(ef_, k), isIdAllowed, nullptr, init_seeds.empty() ? nullptr : &init_seeds);
         }
 
@@ -1599,6 +1623,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::vector<std::pair<dist_t, labeltype >> result;
         if (cur_element_count == 0) return result;
 
+        search_queries_.fetch_add(1, std::memory_order_relaxed);
+        long local_upper_hops = 0;
+        long local_upper_dist = 0;
+
         tableint currObj = enterpoint_node_;
         dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
 
@@ -1610,8 +1638,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                 data = (unsigned int *) get_linklist(currObj, level);
                 int size = getListCount(data);
-                metric_hops++;
-                metric_distance_computations+=size;
+                local_upper_hops++;
+                local_upper_dist += (long)size;
 
                 tableint *datal = (tableint *) (data + 1);
                 for (int i = 0; i < size; i++) {
@@ -1629,8 +1657,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
 
+        metric_hops.fetch_add(local_upper_hops, std::memory_order_relaxed);
+        metric_distance_computations.fetch_add(local_upper_dist, std::memory_order_relaxed);
+
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        top_candidates = searchBaseLayerST<false>(currObj, query_data, 0, isIdAllowed, &stop_condition);
+        top_candidates = searchBaseLayerST<false, true>(currObj, query_data, 0, isIdAllowed, &stop_condition);
 
         size_t sz = top_candidates.size();
         result.resize(sz);

@@ -22,6 +22,16 @@ def print_results(index_type, results, topk=10):
                 print(f"GPU memory peak: {used_gb:.2f}GB")
     recall_key = f"Recall@{topk}"
     print(f"{recall_key}: {results['recall']:.4f}")
+    if "search_hops_total" in results and "search_queries_count" in results:
+        q = int(results.get("search_queries_count") or 0)
+        if q > 0:
+            avg_hops = float(results.get("search_hops_total", 0)) / float(q)
+            print(f"Avg hops/query: {avg_hops:.2f}")
+    if "search_dist_computations_total" in results and "search_queries_count" in results:
+        q = int(results.get("search_queries_count") or 0)
+        if q > 0:
+            avg_dc = float(results.get("search_dist_computations_total", 0)) / float(q)
+            print(f"Avg dist comps/query: {avg_dc:.2f}")
     if 'hit_rate' in results:
         hit_info = results['hit_rate']
         if len(hit_info) == 3:

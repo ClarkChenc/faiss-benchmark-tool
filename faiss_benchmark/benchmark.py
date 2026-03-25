@@ -196,6 +196,12 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
 
     n_queries = xq.shape[0]
 
+    try:
+        if hasattr(index, "reset_search_metrics"):
+            index.reset_search_metrics()
+    except Exception:
+        pass
+
     total_search_time = 0.0
     mem_info_before = get_gpu_memory()
     before_used = mem_info_before["used_bytes"] if mem_info_before else None
@@ -245,6 +251,23 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
     if hasattr(index, "get_stat"):
         index.get_stat(processed)
 
+    try:
+        if hasattr(index, "get_search_metrics"):
+            m = index.get_search_metrics()
+            if m is not None and isinstance(m, tuple) and len(m) == 3:
+                hops, dist_comps, q = m
+                result_search_metrics = {
+                    "search_hops_total": int(hops),
+                    "search_dist_computations_total": int(dist_comps),
+                    "search_queries_count": int(q),
+                }
+            else:
+                result_search_metrics = {}
+        else:
+            result_search_metrics = {}
+    except Exception:
+        result_search_metrics = {}
+
     # Throughput and latency metrics
     qps = n_queries * repeat / total_search_time if total_search_time > 0 else 0.0
     latencies_ms = np.array(latencies, dtype=np.float64) * 1000.0
@@ -271,6 +294,7 @@ def search_index(index, xq, gt, topk=10, params=None, latency_batch_size=None, w
         "gpu_mem_peak_used_bytes": peak_used,
         "gpu_mem_total_bytes": total_bytes,
     }
+    result.update(result_search_metrics)
 
     if hasattr(index, "get_cumulative_hit_rate"):
         try:

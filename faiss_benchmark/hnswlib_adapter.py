@@ -197,6 +197,21 @@ class HnswlibIndexAdapter:
     def get_stat(self, query_size):
         self.get_indegree_node_hit_search_count(query_size)
 
+    def reset_search_metrics(self):
+        try:
+            if self._index is not None and hasattr(self._index, "reset_search_metrics"):
+                self._index.reset_search_metrics()
+        except Exception:
+            return
+
+    def get_search_metrics(self):
+        try:
+            if self._index is not None and hasattr(self._index, "get_search_metrics"):
+                return self._index.get_search_metrics()
+        except Exception:
+            return None
+        return None
+
     # --- Cache/Serialization helpers ---
     def save_to_cache(self, path: str):
         if self._index is None:
@@ -407,6 +422,21 @@ class HnswlibSplitIndexAdapter:
 
     def get_stat(self, query_size):
         self.get_indegree_node_hit_search_count(query_size)
+
+    def reset_search_metrics(self):
+        try:
+            if self._merged_index is not None and hasattr(self._merged_index, "reset_search_metrics"):
+                self._merged_index.reset_search_metrics()
+        except Exception:
+            return
+
+    def get_search_metrics(self):
+        try:
+            if self._merged_index is not None and hasattr(self._merged_index, "get_search_metrics"):
+                return self._merged_index.get_search_metrics()
+        except Exception:
+            return None
+        return None
 
     def save_to_cache(self, path: str):
         os.makedirs(path, exist_ok=True)
