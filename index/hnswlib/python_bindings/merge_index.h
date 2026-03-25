@@ -267,6 +267,7 @@ Index<dist_t>* merge_indices(
                     hnswlib::tableint v_id = (hnswlib::tableint)pr.second;
                     if (v_id != u_id) new_neighbors.push_back(v_id);
                 }
+                if (new_neighbors.empty()) continue;
                 unsigned int* linklist;
                 hnswlib::tableint* links;
                 if (level == 0) {
@@ -406,6 +407,7 @@ Index<dist_t>* merge_indices(
                 hnswlib::tableint* links = (hnswlib::tableint*)(linklist + 1);
 
                 if (!use_extra_space) {
+                    if (top_candidates.empty()) continue;
                     std::unordered_set<hnswlib::tableint> uniq;
                     std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> all_candidates;
                     for (int k = 0; k < cur_size; ++k) {
