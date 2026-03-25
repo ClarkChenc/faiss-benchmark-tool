@@ -190,7 +190,7 @@ class HnswlibIndexAdapter:
     def get_indegree_node_hit_search_count(self, query_size):
         try:
             if hasattr(self._index, "get_hit_rate"):
-                _, _, indegree_hits = self._index.get_hit_rate()
+                indegree_hits, _total = self._index.get_hit_rate()
                 hit_rate = float(indegree_hits) / float(query_size)
                 print(f"indegree_node hit_rate: {hit_rate:.3%}")
             elif hasattr(self._index, "getHitCount"):
@@ -422,7 +422,7 @@ class HnswlibSplitIndexAdapter:
     def get_indegree_node_hit_search_count(self, query_size):
         try:
             if hasattr(self._merged_index, "get_hit_rate"):
-                _, _, indegree_hits = self._merged_index.get_hit_rate()
+                indegree_hits, _total = self._merged_index.get_hit_rate()
                 hit_rate = float(indegree_hits) / float(query_size)
                 print(f"indegree_node hit_rate: {hit_rate:.3%}")
             elif hasattr(self._merged_index, "getHitCount"):

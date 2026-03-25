@@ -303,7 +303,7 @@ class Index {
     py::tuple get_hit_rate() {
         if (!appr_alg) throw std::runtime_error("Index not initialized");
         auto rate = appr_alg->getHitRate();
-        return py::make_tuple(std::get<0>(rate), std::get<1>(rate), std::get<2>(rate));
+        return py::make_tuple(std::get<0>(rate), std::get<1>(rate));
     }
 
     void reset_search_metrics() {

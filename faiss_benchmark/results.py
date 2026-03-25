@@ -34,13 +34,8 @@ def print_results(index_type, results, topk=10):
             print(f"Avg distance calls/query: {avg_dc:.2f}")
     if 'hit_rate' in results:
         hit_info = results['hit_rate']
-        if len(hit_info) == 3:
-             hit, total, indegree_hit = hit_info
-             if total > 0:
-                print(f"Entrypoint-majority hit rate: {hit/total:.3f} ({hit}/{total})")
-                print(f"Indegree node hit rate: {indegree_hit/total:.3f} ({indegree_hit}/{total})")
-        elif len(hit_info) == 2:
-            hit, total = hit_info
+        if len(hit_info) == 2:
+            indegree_hit, total = hit_info
             if total > 0:
-                print(f"Entrypoint-majority hit rate: {hit/total:.3f} ({hit}/{total})")
+                print(f"Indegree node hit rate: {indegree_hit/total:.3f} ({indegree_hit}/{total})")
     print("-" * 40)
