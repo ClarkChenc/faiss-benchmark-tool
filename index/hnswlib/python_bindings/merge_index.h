@@ -39,6 +39,7 @@ Index<dist_t>* merge_indices(
     size_t random_seed,
     float extra_M_ratio = 1.0f,
     float keep_pruned_connections = 1.0f,
+    bool use_extra_space = true,
     size_t merged_seg_num = 0
 ) {
     // 1. Initialize Merged Index Wrapper
@@ -46,25 +47,27 @@ Index<dist_t>* merge_indices(
     merged_index_wrapper->init_new_index(total_max_elements, M, efConstruction, random_seed, false);
     hnswlib::HierarchicalNSW<dist_t>* out_alg = merged_index_wrapper->appr_alg;
     {
-        size_t base_maxM0 = out_alg->maxM0_;
-        size_t add_extra = (size_t)(extra_M_ratio * 2 * M);
-        size_t new_maxM0 = base_maxM0 + add_extra;
-        if (new_maxM0 > base_maxM0) {
-            if (out_alg->cur_element_count != 0) {
-                throw std::runtime_error("Merged index must be empty before expanding level0 capacity");
-            }
-            out_alg->maxM0_ = new_maxM0;
-            out_alg->size_links_level0_ = out_alg->maxM0_ * sizeof(hnswlib::tableint) + sizeof(hnswlib::linklistsizeint);
-            out_alg->size_data_per_element_ = out_alg->size_links_level0_ + out_alg->data_size_ + sizeof(hnswlib::labeltype);
-            out_alg->offsetData_ = out_alg->size_links_level0_;
-            out_alg->label_offset_ = out_alg->size_links_level0_ + out_alg->data_size_;
-            out_alg->offsetLevel0_ = 0;
-            if (out_alg->data_level0_memory_) {
-                free(out_alg->data_level0_memory_);
-            }
-            out_alg->data_level0_memory_ = (char *) malloc(out_alg->max_elements_ * out_alg->size_data_per_element_);
-            if (out_alg->data_level0_memory_ == nullptr) {
-                throw std::runtime_error("Not enough memory for expanded level0 capacity");
+        if (use_extra_space) {
+            size_t base_maxM0 = out_alg->maxM0_;
+            size_t add_extra = (size_t)(extra_M_ratio * 2 * M);
+            size_t new_maxM0 = base_maxM0 + add_extra;
+            if (new_maxM0 > base_maxM0) {
+                if (out_alg->cur_element_count != 0) {
+                    throw std::runtime_error("Merged index must be empty before expanding level0 capacity");
+                }
+                out_alg->maxM0_ = new_maxM0;
+                out_alg->size_links_level0_ = out_alg->maxM0_ * sizeof(hnswlib::tableint) + sizeof(hnswlib::linklistsizeint);
+                out_alg->size_data_per_element_ = out_alg->size_links_level0_ + out_alg->data_size_ + sizeof(hnswlib::labeltype);
+                out_alg->offsetData_ = out_alg->size_links_level0_;
+                out_alg->label_offset_ = out_alg->size_links_level0_ + out_alg->data_size_;
+                out_alg->offsetLevel0_ = 0;
+                if (out_alg->data_level0_memory_) {
+                    free(out_alg->data_level0_memory_);
+                }
+                out_alg->data_level0_memory_ = (char *) malloc(out_alg->max_elements_ * out_alg->size_data_per_element_);
+                if (out_alg->data_level0_memory_ == nullptr) {
+                    throw std::runtime_error("Not enough memory for expanded level0 capacity");
+                }
             }
         }
     }
@@ -87,7 +90,7 @@ Index<dist_t>* merge_indices(
             std::vector<std::string> stage1_files(filenames.begin(), filenames.begin() + merged_seg_num);
             stage1_wrapper_to_free = merge_indices<dist_t>(
                 stage1_files, space_name, dim, total_max_elements, M, efConstruction, random_seed,
-                extra_M_ratio, keep_pruned_connections, 0 /* ensure original method in stage1 */
+                extra_M_ratio, keep_pruned_connections, use_extra_space, 0 /* ensure original method in stage1 */
             );
             if (!stage1_wrapper_to_free || !stage1_wrapper_to_free->appr_alg) {
                 throw std::runtime_error("Stage1 merge failed to produce a valid index");
@@ -361,7 +364,7 @@ Index<dist_t>* merge_indices(
         }
         std::cerr << "Refining Level 0: " << candidate_set.size() << " candidates with extra_M_ratio " << extra_M_ratio << std::endl;
         if (!candidate_set.empty()) {
-            size_t K = (size_t)(extra_M_ratio * M);
+            size_t K = std::max((size_t)10, (size_t)std::ceil(extra_M_ratio * 2 * M));
             
             auto t_search_start_l0 = std::chrono::steady_clock::now();
             
@@ -402,37 +405,70 @@ Index<dist_t>* merge_indices(
                 int cur_size = *linklist;
                 hnswlib::tableint* links = (hnswlib::tableint*)(linklist + 1);
 
-                bool in_stage1_group = has_stage1_merged && (u_id < (hnswlib::tableint)stage1_merged_size);
-                if (!top_candidates.empty()) {
-                    if (in_stage1_group) {
-                        // Overwrite logic within Merge region for nodes in the merged segment from stage 1
-                        int native_limit = std::min(cur_size, (int)(2 * out_alg->M_));
-                        size_t capacity_merge_region = (size_t)out_alg->maxM0_ - (size_t)native_limit;
-                        size_t desired_merge_region = (size_t)(extra_M_ratio * out_alg->M_);
-                        size_t slots = std::min(capacity_merge_region, desired_merge_region);
-                        if (slots > 0) {
-                            out_alg->getNeighborsByHeuristic2(top_candidates, slots);
-                            size_t filled = 0;
-                            while (!top_candidates.empty() && filled < slots) {
-                                links[native_limit + (int)filled] = top_candidates.top().second;
-                                top_candidates.pop();
-                                ++filled;
-                            }
-                            int new_size = std::max(cur_size, native_limit + (int)filled);
-                            *linklist = new_size;
+                if (!use_extra_space) {
+                    std::unordered_set<hnswlib::tableint> uniq;
+                    std::priority_queue<std::pair<dist_t, hnswlib::tableint>, std::vector<std::pair<dist_t, hnswlib::tableint>>, typename hnswlib::HierarchicalNSW<dist_t>::CompareByFirst> all_candidates;
+                    for (int k = 0; k < cur_size; ++k) {
+                        hnswlib::tableint v_id = links[k];
+                        if (v_id == u_id) continue;
+                        if (!uniq.insert(v_id).second) continue;
+                        void* neighbor_data = out_alg->getDataByInternalId(v_id);
+                        dist_t dist = out_alg->fstdistfunc_(u_data, neighbor_data, out_alg->dist_func_param_);
+                        all_candidates.emplace(dist, v_id);
+                    }
+                    while (!top_candidates.empty()) {
+                        auto item = top_candidates.top();
+                        top_candidates.pop();
+                        hnswlib::tableint v_id = item.second;
+                        if (v_id == u_id) continue;
+                        if (!uniq.insert(v_id).second) continue;
+                        all_candidates.emplace(item.first, v_id);
+                    }
+                    size_t target = (size_t)(2 * out_alg->M_);
+                    if (!all_candidates.empty()) {
+                        out_alg->getNeighborsByHeuristic2(all_candidates, target);
+                        int new_size = 0;
+                        while (!all_candidates.empty() && new_size < (int)target) {
+                            links[new_size++] = all_candidates.top().second;
+                            all_candidates.pop();
                         }
+                        *linklist = new_size;
                     } else {
-                        // Default: append remote neighbors to existing ones
-                        size_t capacity = out_alg->maxM0_ - cur_size;
-                        size_t slots = std::min(capacity, (size_t)(extra_M_ratio * out_alg->M_));
-                        out_alg->getNeighborsByHeuristic2(top_candidates, slots);
-                        size_t used = 0;
-                        while (!top_candidates.empty() && used < slots) {
-                            links[cur_size++] = top_candidates.top().second;
-                            top_candidates.pop();
-                            ++used;
+                        *linklist = 0;
+                    }
+                } else {
+                    bool in_stage1_group = has_stage1_merged && (u_id < (hnswlib::tableint)stage1_merged_size);
+                    if (!top_candidates.empty()) {
+                        size_t desired_merge_region = (size_t)(extra_M_ratio * 2 * out_alg->M_);
+                        if (in_stage1_group) {
+                            // Overwrite logic within Merge region for nodes in the merged segment from stage 1
+                            int native_limit = std::min(cur_size, (int)(2 * out_alg->M_));
+                            size_t capacity_merge_region = (size_t)out_alg->maxM0_ - (size_t)native_limit;
+                            size_t slots = std::min(capacity_merge_region, desired_merge_region);
+                            if (slots > 0) {
+                                out_alg->getNeighborsByHeuristic2(top_candidates, slots);
+                                size_t filled = 0;
+                                while (!top_candidates.empty() && filled < slots) {
+                                    links[native_limit + (int)filled] = top_candidates.top().second;
+                                    top_candidates.pop();
+                                    ++filled;
+                                }
+                                int new_size = std::max(cur_size, native_limit + (int)filled);
+                                *linklist = new_size;
+                            }
+                        } else {
+                            // Default: append remote neighbors to existing ones
+                            size_t capacity = out_alg->maxM0_ - cur_size;
+                            size_t slots = std::min(capacity, desired_merge_region);
+                            out_alg->getNeighborsByHeuristic2(top_candidates, slots);
+                            size_t used = 0;
+                            while (!top_candidates.empty() && used < slots) {
+                                links[cur_size++] = top_candidates.top().second;
+                                top_candidates.pop();
+                                ++used;
+                            }
+                            *linklist = cur_size;
                         }
-                        *linklist = cur_size;
                     }
                 }
             }

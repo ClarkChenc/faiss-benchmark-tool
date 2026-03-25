@@ -1204,6 +1204,7 @@ PYBIND11_PLUGIN(hnswlib) {
         py::arg("random_seed") = 100,
         py::arg("extra_M_ratio") = 1.0f,
         py::arg("keep_pruned_connections") = 1.0f,
+        py::arg("use_extra_space") = true,
         py::arg("merged_seg_num") = 0
     );
 

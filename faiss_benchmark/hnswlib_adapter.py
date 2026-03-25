@@ -248,6 +248,7 @@ class HnswlibSplitIndexAdapter:
         self.seg_num = int(bp.get("seg_num", 1))
         self.is_merge = bool(bp.get("is_merge", False))
         self.merge_ratio = float(bp.get("merge_ratio", 1.0))
+        self.use_extra_space = bool(bp.get("use_extra_space", True))
         self.merged_seg_num = int(bp.get("merged_seg_num", 0))
         try:
             self._num_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
@@ -431,6 +432,7 @@ class HnswlibSplitIndexAdapter:
                     random_seed=100,
                     extra_M_ratio=self.merge_ratio,
                     keep_pruned_connections=self.keep_indegree_rate,
+                    use_extra_space=self.use_extra_space,
                     merged_seg_num=self.merged_seg_num
                 )
                 merge_time = time.time() - start_time
