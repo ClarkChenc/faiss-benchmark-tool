@@ -288,6 +288,7 @@ class HnswlibSplitIndexAdapter:
         self._added_total = 0
         self._merged_index = None
         self._merged_index_map_built = False
+        self._merged_index_map_keep_rate = None
         self.segment_sizes = None
 
         class _HnswParamsProxy:
@@ -361,10 +362,11 @@ class HnswlibSplitIndexAdapter:
 
     def search(self, xq: np.ndarray, topk: int):
         if self._merged_index:
-            if not self._merged_index_map_built:
+            if (not self._merged_index_map_built) or (self._merged_index_map_keep_rate != float(self.keep_indegree_rate)):
                 if hasattr(self._merged_index, "build_indegree_map"):
                     self._merged_index.build_indegree_map(self.keep_indegree_rate)
                 self._merged_index_map_built = True
+                self._merged_index_map_keep_rate = float(self.keep_indegree_rate)
 
             xq = np.asarray(xq, dtype=np.float32)
             if xq.ndim != 2 or xq.shape[1] != self.dimension:
@@ -488,6 +490,10 @@ class HnswlibSplitIndexAdapter:
                 if self.segment_sizes and hasattr(self._merged_index, "set_segment_boundaries"):
                      ends = np.cumsum(self.segment_sizes, dtype=np.uint64)
                      self._merged_index.set_segment_boundaries(ends)
+                if hasattr(self._merged_index, "build_indegree_map"):
+                    self._merged_index.build_indegree_map(self.keep_indegree_rate)
+                    self._merged_index_map_built = True
+                    self._merged_index_map_keep_rate = float(self.keep_indegree_rate)
             except Exception as e:
                 print(f"Warning: Failed to merge indices: {e}")
 
@@ -495,6 +501,8 @@ class HnswlibSplitIndexAdapter:
     def load_from_cache(cls, dir_path: str, dimension: int, space: str, seg_num: int, segment_sizes: list[int], num_threads: int | None = None, is_merge: bool = False):
         import hnswlib
         inst = cls(dimension=dimension, build_params={"space": space, "seg_num": int(seg_num), "is_merge": is_merge})
+        threads = int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1"))
+        inst._num_threads = threads
         
         merged_path = os.path.join(dir_path, "merged_index.hnswlib")
         if is_merge and os.path.exists(merged_path):
@@ -505,7 +513,7 @@ class HnswlibSplitIndexAdapter:
             idx.set_keep_indegree_rate(inst.keep_indegree_rate)
             idx.load_index(merged_path, max_elements=inst._capacity_total)
             try:
-                idx.set_num_threads(int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1")))
+                idx.set_num_threads(threads)
             except Exception:
                 pass
             inst._merged_index = idx
@@ -513,6 +521,10 @@ class HnswlibSplitIndexAdapter:
             if inst.segment_sizes and hasattr(inst._merged_index, "set_segment_boundaries"):
                 ends = np.cumsum(inst.segment_sizes, dtype=np.uint64)
                 inst._merged_index.set_segment_boundaries(ends)
+            if hasattr(inst._merged_index, "build_indegree_map"):
+                inst._merged_index.build_indegree_map(inst.keep_indegree_rate)
+                inst._merged_index_map_built = True
+                inst._merged_index_map_keep_rate = float(inst.keep_indegree_rate)
             return inst
         
         inst._segments = []
@@ -525,7 +537,7 @@ class HnswlibSplitIndexAdapter:
             idx.set_keep_indegree_rate(inst.keep_indegree_rate)
             idx.load_index(fp, max_elements=cap)
             try:
-                idx.set_num_threads(int(num_threads) if (num_threads is not None) else int(os.environ.get("OMP_NUM_THREADS", "1")))
+                idx.set_num_threads(threads)
             except Exception:
                 pass
             inst._segments.append({"index": idx, "capacity": cap, "added": cap})
