@@ -407,14 +407,20 @@ class HnswlibSplitIndexAdapter:
 
     def search_with_params(self, xq: np.ndarray, topk: int, params: dict | None = None):
         if params:
-            if"efSearch" in params:
+            if "efSearch" in params:
+                ef = int(params["efSearch"])
                 try:
-                    self.hnsw.efSearch = int(params["efSearch"])
+                    if self._merged_index is not None:
+                        self._merged_index.set_ef(ef)
+                    else:
+                        for seg in self._segments:
+                            seg["index"].set_ef(ef)
                 except Exception:
                     pass
             if "trigger_multi_entry" in params:
                 try:
-                    self._merged_index.set_trigger_multi_entry(bool(params["trigger_multi_entry"]))
+                    if self._merged_index is not None:
+                        self._merged_index.set_trigger_multi_entry(bool(params["trigger_multi_entry"]))
                 except Exception as e:
                     print(f"Failed to set trigger_multi_entry: {e}")
                     pass
